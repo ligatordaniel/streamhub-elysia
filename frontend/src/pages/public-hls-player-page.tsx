@@ -86,7 +86,6 @@ export function PublicHlsPlayerPage(): JSX.Element {
               alt="Emergency fallback"
               className={`streaming-player-fallback-image public-player-media public-player-media--${fitMode}`}
             />
-            <span className="streaming-player-fallback-badge">Emergency image</span>
           </div>
         ) : null}
       </div>
