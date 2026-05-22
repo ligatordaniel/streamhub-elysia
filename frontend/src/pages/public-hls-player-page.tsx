@@ -24,17 +24,76 @@ function buildFallbackStorageKey(streamPath: string): string {
 
 export function PublicHlsPlayerPage(): JSX.Element {
   const { streamingAlias, publishKey } = useParams();
+  const searchParams = new URLSearchParams(window.location.search);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [status, setStatus] = useState<PlaybackState>('connecting');
   const [statusMessage, setStatusMessage] = useState('Connecting to the live HLS playlist.');
   const [fallbackImageUrl, setFallbackImageUrl] = useState<string | null>(null);
-  const [hasPlayableSignal, setHasPlayableSignal] = useState(false);
+  const [hasLiveSignal, setHasLiveSignal] = useState(false);
+  const hasLiveSignalRef = useRef(false);
+  const isChromeless = searchParams.get('chrome') !== '1';
+  const fitMode = searchParams.get('fit') === 'cover' ? 'cover' : 'contain';
+  const showStatusText = !isChromeless || searchParams.get('status') === '1';
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('public-player-root--chromeless', isChromeless);
+    document.body.classList.toggle('public-player-body--chromeless', isChromeless);
+
+    return () => {
+      document.documentElement.classList.remove('public-player-root--chromeless');
+      document.body.classList.remove('public-player-body--chromeless');
+    };
+  }, [isChromeless]);
+
+  function updateLiveSignal(nextValue: boolean): void {
+    hasLiveSignalRef.current = nextValue;
+    setHasLiveSignal(nextValue);
+  }
+
+  function renderPlayerShell(): JSX.Element {
+    return (
+      <div
+        className={`streaming-player-shell streaming-player-shell--${status} ${
+          isChromeless && !showStatusText ? 'streaming-player-shell--chromeless' : ''
+        }`}
+      >
+        <video
+          ref={videoRef}
+          className={`streaming-player public-player-media public-player-media--${fitMode} ${showFallbackImage ? 'streaming-player--hidden' : ''}`}
+          autoPlay
+          controls
+          muted
+          playsInline
+          preload="metadata"
+          aria-label="Public HLS playback"
+        />
+        {showFallbackImage ? (
+          <div className="streaming-player-fallback">
+            <img
+              src={fallbackImageUrl ?? ''}
+              alt="Emergency fallback"
+              className={`streaming-player-fallback-image public-player-media public-player-media--${fitMode}`}
+            />
+            <span className="streaming-player-fallback-badge">Emergency image</span>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   if (!streamingAlias || !publishKey) {
+    if (isChromeless) {
+      return (
+        <div className="public-player-empty">
+          <p>This embed URL is missing the stream alias or publish key.</p>
+        </div>
+      );
+    }
+
     return (
       <main className="dashboard-page w-full public-player-page">
         <section className="dashboard-shell w-full public-player-shell">
-          <article className="status-card streaming-player-card">
+          <article className="status-card streaming-player-card public-player-card">
             <span className="status-eyebrow">Public player</span>
             <h1>Invalid stream path</h1>
             <p>This embed URL is missing the stream alias or publish key.</p>
@@ -45,7 +104,7 @@ export function PublicHlsPlayerPage(): JSX.Element {
   }
 
   const streamPath = `live/${streamingAlias}/${publishKey}`;
-  const playbackUrl = `${runtime.streamingHlsUrl}/${streamPath}/index.m3u8`;
+  const playbackUrl = `${runtime.streamingHlsUrl}/${streamPath}/index.m3u8?cookieCheck=1`;
 
   useEffect(() => {
     const storageKey = buildFallbackStorageKey(streamPath);
@@ -91,6 +150,20 @@ export function PublicHlsPlayerPage(): JSX.Element {
   }, [streamPath]);
 
   useEffect(() => {
+    if (window.parent === window) {
+      return;
+    }
+
+    window.parent.postMessage(
+      {
+        source: 'streamhub-public-player',
+        hasLiveSignal,
+      },
+      '*',
+    );
+  }, [hasLiveSignal]);
+
+  useEffect(() => {
     const video = videoRef.current;
 
     if (!video) {
@@ -99,9 +172,31 @@ export function PublicHlsPlayerPage(): JSX.Element {
 
     let hls: Hls | null = null;
     let disposed = false;
+    let disconnectTimeoutId: number | null = null;
+
+    const clearDisconnectTimeout = (): void => {
+      if (disconnectTimeoutId !== null) {
+        window.clearTimeout(disconnectTimeoutId);
+        disconnectTimeoutId = null;
+      }
+    };
+
+    const scheduleDisconnect = (message: string): void => {
+      clearDisconnectTimeout();
+      disconnectTimeoutId = window.setTimeout(() => {
+        if (disposed) {
+          return;
+        }
+
+        updateLiveSignal(false);
+        setStatus('connecting');
+        setStatusMessage(message);
+      }, 2500);
+    };
 
     const resetVideo = (): void => {
-      setHasPlayableSignal(false);
+      clearDisconnectTimeout();
+      updateLiveSignal(false);
       video.pause();
       video.removeAttribute('src');
       video.load();
@@ -112,7 +207,8 @@ export function PublicHlsPlayerPage(): JSX.Element {
         return;
       }
 
-      setHasPlayableSignal(true);
+      clearDisconnectTimeout();
+      updateLiveSignal(true);
       setStatus('ready');
       setStatusMessage('Live signal connected.');
     };
@@ -122,12 +218,13 @@ export function PublicHlsPlayerPage(): JSX.Element {
         return;
       }
 
-      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-        setHasPlayableSignal(false);
+      if (!hasLiveSignalRef.current) {
+        setStatus('connecting');
+        setStatusMessage(message);
+        return;
       }
 
-      setStatus('connecting');
-      setStatusMessage(message);
+      scheduleDisconnect(message);
     };
 
     const markUnsupported = (message: string): void => {
@@ -135,7 +232,7 @@ export function PublicHlsPlayerPage(): JSX.Element {
         return;
       }
 
-      setHasPlayableSignal(false);
+      updateLiveSignal(false);
       setStatus('unsupported');
       setStatusMessage(message);
     };
@@ -146,8 +243,13 @@ export function PublicHlsPlayerPage(): JSX.Element {
 
     const handleVideoEmptied = (): void => {
       if (!disposed) {
-        setHasPlayableSignal(false);
+        clearDisconnectTimeout();
+        updateLiveSignal(false);
       }
+    };
+
+    const handleVideoStalled = (): void => {
+      markWaiting('Waiting for live signal.');
     };
 
     setStatus('connecting');
@@ -157,7 +259,9 @@ export function PublicHlsPlayerPage(): JSX.Element {
     video.addEventListener('playing', handlePlayableSignal);
     video.addEventListener('canplay', handlePlayableSignal);
     video.addEventListener('loadeddata', handlePlayableSignal);
+    video.addEventListener('timeupdate', handlePlayableSignal);
     video.addEventListener('emptied', handleVideoEmptied);
+    video.addEventListener('stalled', handleVideoStalled);
 
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       const handleCanPlay = (): void => {
@@ -178,8 +282,11 @@ export function PublicHlsPlayerPage(): JSX.Element {
         video.removeEventListener('playing', handlePlayableSignal);
         video.removeEventListener('canplay', handlePlayableSignal);
         video.removeEventListener('loadeddata', handlePlayableSignal);
+        video.removeEventListener('timeupdate', handlePlayableSignal);
         video.removeEventListener('emptied', handleVideoEmptied);
+        video.removeEventListener('stalled', handleVideoStalled);
         video.removeEventListener('error', handleError);
+        clearDisconnectTimeout();
         resetVideo();
       };
     }
@@ -228,38 +335,28 @@ export function PublicHlsPlayerPage(): JSX.Element {
       video.removeEventListener('playing', handlePlayableSignal);
       video.removeEventListener('canplay', handlePlayableSignal);
       video.removeEventListener('loadeddata', handlePlayableSignal);
+      video.removeEventListener('timeupdate', handlePlayableSignal);
       video.removeEventListener('emptied', handleVideoEmptied);
+      video.removeEventListener('stalled', handleVideoStalled);
+      clearDisconnectTimeout();
       hls?.destroy();
       resetVideo();
     };
   }, [playbackUrl]);
 
-  const showFallbackImage = !hasPlayableSignal && Boolean(fallbackImageUrl);
+  const showFallbackImage = !hasLiveSignal && Boolean(fallbackImageUrl);
+
+  if (isChromeless && !showStatusText) {
+    return renderPlayerShell();
+  }
 
   return (
-    <main className="dashboard-page w-full public-player-page">
-      <section className="dashboard-shell w-full public-player-shell">
-        <article className="status-card streaming-player-card public-player-card">
-          <span className="status-eyebrow">Public player</span>
-          <div className={`streaming-player-shell streaming-player-shell--${status}`}>
-            <video
-              ref={videoRef}
-              className={`streaming-player ${showFallbackImage ? 'streaming-player--hidden' : ''}`}
-              autoPlay
-              controls
-              muted
-              playsInline
-              preload="metadata"
-              aria-label="Public HLS playback"
-            />
-            {showFallbackImage ? (
-              <div className="streaming-player-fallback">
-                <img src={fallbackImageUrl ?? ''} alt="Emergency fallback" className="streaming-player-fallback-image" />
-                <span className="streaming-player-fallback-badge">Emergency image</span>
-              </div>
-            ) : null}
-          </div>
-          <p className="streaming-player-status">{statusMessage}</p>
+    <main className={`dashboard-page w-full public-player-page ${isChromeless ? 'public-player-page--chromeless' : ''}`}>
+      <section className={`dashboard-shell w-full public-player-shell ${isChromeless ? 'public-player-shell--chromeless' : ''}`}>
+        <article className={`status-card streaming-player-card public-player-card ${isChromeless ? 'public-player-card--chromeless' : ''}`}>
+          {isChromeless ? null : <span className="status-eyebrow">Public player</span>}
+          {renderPlayerShell()}
+          {showStatusText ? <p className="streaming-player-status">{statusMessage}</p> : null}
         </article>
       </section>
     </main>
