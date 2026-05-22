@@ -4,6 +4,7 @@ import { useAuth } from './auth/auth-context';
 import { ProtectedRoute } from './components/protected-route';
 import { DashboardPage } from './pages/dashboard-page';
 import { LoginPage } from './pages/login-page';
+import { StreamingControlPage } from './pages/streaming-control-page';
 
 function LoadingScreen(): JSX.Element {
   return (
@@ -37,6 +38,7 @@ export function App(): JSX.Element {
       <Route path="/login" element={<LoginRedirect />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<DashboardPage />} />
+        <Route path="/streamings/:streamingId" element={<StreamingControlPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

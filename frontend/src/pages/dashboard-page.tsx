@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+
 import { useAuth } from '../auth/auth-context';
 import { AdminPanel } from '../components/admin-panel';
 
@@ -13,10 +15,15 @@ function StreamingCard({
   companyName: string;
 }): JSX.Element {
   return (
-    <article className="stream-card" title={`${name} · ${type} · ${companyName} · ${id}`}>
+    <Link
+      className="stream-card stream-card-link"
+      to={`/streamings/${id}`}
+      title={`${name} · ${type} · ${companyName} · ${id}`}
+      aria-label={`Open control page for ${name}`}
+    >
       <h3>{name}</h3>
       <p>{type} · {companyName} · {id}</p>
-    </article>
+    </Link>
   );
 }
 
