@@ -129,7 +129,7 @@ export function PublicHlsPlayerPage(): JSX.Element {
 
     const retryTimeoutId = window.setTimeout(() => {
       setRetryVersion((currentValue) => currentValue + 1);
-    }, 10000);
+    }, 60000);
 
     return () => {
       window.clearTimeout(retryTimeoutId);
@@ -272,7 +272,7 @@ export function PublicHlsPlayerPage(): JSX.Element {
     };
 
     const handleVideoStalled = (): void => {
-      markWaiting('Waiting for live signal. Retrying every 10 seconds.');
+      markWaiting('Waiting for live signal. Retrying every 60 seconds.');
     };
 
     setStatus('connecting');
@@ -340,14 +340,14 @@ export function PublicHlsPlayerPage(): JSX.Element {
 
       if (!data.fatal) {
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          markWaiting('Waiting for live signal. Retrying every 10 seconds.');
+          markWaiting('Waiting for live signal. Retrying every 60 seconds.');
         }
 
         return;
       }
 
       if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-        markWaiting('Waiting for live signal. Retrying every 10 seconds.');
+        markWaiting('Waiting for live signal. Retrying every 60 seconds.');
         hls?.startLoad();
         return;
       }

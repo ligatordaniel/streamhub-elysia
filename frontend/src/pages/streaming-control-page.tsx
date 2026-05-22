@@ -487,7 +487,7 @@ function HlsPlayer({
       <p className="streaming-player-status">
         {hasLiveSignal
           ? 'Live signal connected in the public player.'
-          : 'Waiting for the public player signal. Auto retry every 10 seconds.'}
+          : 'Waiting for the public player signal. Auto retry every 60 seconds.'}
       </p>
     </article>
   );
