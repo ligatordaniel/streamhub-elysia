@@ -20,11 +20,11 @@ Build a streaming platform for audio and video with a focus on low latency, stro
 - Baseline live video uses H.264 plus AAC from the transmitter PC.
 - MediaMTX is the core streaming server for RTMP ingest, HLS playback, and optional WebRTC.
 - The live server must not transcode by default; encoding stays on the transmitter PC.
-- Stream paths are tenant-scoped and opaque: `tenants/<companyId>/streamings/<streamingId>/<ingestKey>`.
+- Stream paths are short opaque aliases: `live/<streamingAlias>/<publishKey>`.
 - Nginx fronts HLS and the WebRTC HTTP handshake; RTMP ingest stays direct to MediaMTX.
 - The streaming control page renders a real HLS player and falls back to hls.js when the browser lacks native HLS support.
-- The streaming control page shows the RTMP server URL and stream key separately for OBS or vMix, plus the combined ingest URL for convenience.
-- Stream keys are generated as `<company-slug>-<5 safe chars>` and are editable only by super_admin in the admin console.
+- The streaming control page shows a shortened RTMP publish URL prefix and shortened publish key separately for OBS or vMix, plus the combined ingest URL for convenience.
+- Stored ingest keys are editable only by super_admin in the admin console, and the control page derives short opaque publish aliases from the streaming id and ingest key.
 
 ## Repository layout
 - frontend/ contains the React + Vite client and its Tailwind CSS styling layer.
@@ -68,7 +68,7 @@ Build a streaming platform for audio and video with a focus on low latency, stro
 
 ## Local deployment
 - frontend/ and backend/ each own a Dockerfile and a docker-compose.yml file.
-- The root package.json exposes a localdeploy script that starts both compose stacks.
+- The root package.json exposes a localdeploy script that starts the backend, frontend, and streaming compose stacks.
 - The compose files mount the workspace root so both apps can read the shared .env.main and database/ assets.
 - The compose services install workspace dependencies on startup so mounted node_modules volumes stay in sync with package changes.
 

@@ -9,8 +9,38 @@ function getStreamingSummary(type: string, companyName: string, streamingId: str
   return `${type} · ${companyName} · ${streamingId}`;
 }
 
-function buildStreamPath(companyId: string, streamingId: string, ingestKey: string): string {
-  return `tenants/${companyId}/streamings/${streamingId}/${ingestKey}`;
+function hashOpaqueToken(value: string): string {
+  let firstHash = 0x811c9dc5;
+  let secondHash = 0x9e3779b9;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const codePoint = value.charCodeAt(index);
+
+    firstHash ^= codePoint;
+    firstHash = Math.imul(firstHash, 0x01000193);
+    secondHash ^= codePoint;
+    secondHash = Math.imul(secondHash, 0x85ebca6b);
+  }
+
+  return `${(firstHash >>> 0).toString(16).padStart(8, '0')}${(secondHash >>> 0)
+    .toString(16)
+    .padStart(8, '0')}`;
+}
+
+function buildStreamingAlias(streamingId: string): string {
+  return hashOpaqueToken(`streaming:${streamingId}`);
+}
+
+function buildPublishKey(streamingId: string, ingestKey: string): string {
+  return hashOpaqueToken(`publish:${streamingId}:${ingestKey}`);
+}
+
+function buildPublishServerPath(streamingId: string): string {
+  return `live/${buildStreamingAlias(streamingId)}`;
+}
+
+function buildStreamPath(streamingId: string, ingestKey: string): string {
+  return `${buildPublishServerPath(streamingId)}/${buildPublishKey(streamingId, ingestKey)}`;
 }
 
 function EndpointCard({
@@ -95,9 +125,9 @@ function PublishSettingsCard({
     <article className="status-card streaming-endpoint-card streaming-publish-card">
       <span className="status-eyebrow">Transmitter PC</span>
       <h2>OBS / vMix publish settings</h2>
-      <p>Enter the RTMP server URL and stream key separately in the transmitter app.</p>
+      <p>These shorter publish values keep OBS setup cleaner while preserving the same live path.</p>
       <CopyableValue label="RTMP server URL" value={serverUrl} />
-      <CopyableValue label="Stream key" value={streamKey} />
+      <CopyableValue label="Publish key" value={streamKey} />
       <CopyableValue label="Combined ingest URL" value={ingestUrl} />
     </article>
   );
@@ -119,11 +149,33 @@ function HlsPlayer({ src, title }: { src: string; title: string }): JSX.Element 
 
     let hls: Hls | null = null;
     let disposed = false;
+    let autoplayAttempted = false;
 
     const resetVideo = (): void => {
       video.pause();
       video.removeAttribute('src');
       video.load();
+    };
+
+    const attemptAutoplay = async (): Promise<void> => {
+      if (disposed || autoplayAttempted) {
+        return;
+      }
+
+      autoplayAttempted = true;
+      video.muted = true;
+
+      try {
+        await video.play();
+
+        if (!disposed) {
+          setStatusMessage('Live signal is playing muted for preview. Use the player controls to enable audio.');
+        }
+      } catch {
+        if (!disposed) {
+          setStatusMessage('Live signal is ready. Press play to start the preview.');
+        }
+      }
     };
 
     const markReady = (): void => {
@@ -132,7 +184,8 @@ function HlsPlayer({ src, title }: { src: string; title: string }): JSX.Element 
       }
 
       setStatus('ready');
-      setStatusMessage('Live signal is ready. Press play if it does not start automatically.');
+      setStatusMessage('Live signal is ready. Starting the muted preview.');
+      void attemptAutoplay();
     };
 
     const markWaiting = (message: string): void => {
@@ -236,7 +289,9 @@ function HlsPlayer({ src, title }: { src: string; title: string }): JSX.Element 
         <video
           ref={videoRef}
           className="streaming-player"
+          autoPlay
           controls
+          muted
           playsInline
           preload="metadata"
           aria-label={`${title} HLS playback preview`}
@@ -262,9 +317,10 @@ export function StreamingControlPage(): JSX.Element {
     return <Navigate to="/" replace />;
   }
 
-  const streamPath = buildStreamPath(session.company.id, streaming.id, streaming.ingestKey);
-  const rtmpServerUrl = runtime.streamingIngestUrl;
-  const rtmpIngestUrl = `${rtmpServerUrl}/${streamPath}`;
+  const streamPath = buildStreamPath(streaming.id, streaming.ingestKey);
+  const publishKey = buildPublishKey(streaming.id, streaming.ingestKey);
+  const rtmpServerUrl = `${runtime.streamingIngestUrl}/${buildPublishServerPath(streaming.id)}`;
+  const rtmpIngestUrl = `${rtmpServerUrl}/${publishKey}`;
   const hlsPlaybackUrl = `${runtime.streamingHlsUrl}/${streamPath}/index.m3u8`;
   const webRtcUrl = `${runtime.streamingWebrtcUrl}/${streamPath}`;
 
@@ -285,7 +341,7 @@ export function StreamingControlPage(): JSX.Element {
 
         <section className="dashboard-content streaming-control-grid">
           <div className="streaming-control-column">
-            <PublishSettingsCard serverUrl={rtmpServerUrl} streamKey={streaming.ingestKey} ingestUrl={rtmpIngestUrl} />
+            <PublishSettingsCard serverUrl={rtmpServerUrl} streamKey={publishKey} ingestUrl={rtmpIngestUrl} />
 
             <article className="status-card streaming-settings-card">
               <span className="status-eyebrow">Recommended settings</span>

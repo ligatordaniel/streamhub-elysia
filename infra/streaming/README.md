@@ -22,10 +22,10 @@ This folder starts the video streaming layer around MediaMTX and Nginx.
 
 Use opaque tenant-scoped paths with the shape:
 
-`tenants/<companyId>/streamings/<streamingId>/<ingestKey>`
+`live/<streamingAlias>/<publishKey>`
 
 The ingest URL and the playback URL share the same path so the stack stays simple.
-Stream keys are generated as `<company-slug>-<5 safe chars>` and can be changed only by a super_admin from the admin console.
+The control page derives the short aliases from the streaming id and stored ingest key, and only a super_admin can rotate the stored ingest key.
 
 Public URL prefixes:
 

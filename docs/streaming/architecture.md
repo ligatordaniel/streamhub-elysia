@@ -22,10 +22,10 @@ This document starts the video streaming layer implementation around a simple ru
 
 Recommended path contract:
 
-- `tenants/<companyId>/streamings/<streamingId>/<ingestKey>`
+- `live/<streamingAlias>/<publishKey>`
 
 The same opaque path is reused across the media layer so the transmitter and playback endpoints stay simple.
-The stream key itself is generated as `<company-slug>-<5 safe chars>` and can only be edited from the super_admin workspace.
+The control page derives short publish aliases from the streaming id and stored ingest key, and only super_admin can rotate the stored ingest key.
 
 ## 2. MediaMTX configuration
 

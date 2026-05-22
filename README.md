@@ -26,7 +26,7 @@ Monorepo for a company-scoped audio/video streaming platform with a single root 
 ## Local dev
 1. Make sure `.env.main` has the local values you want to run.
 2. Run `bun run localdeploy` from the repo root.
-3. The backend will listen on `http://localhost:3012` and the frontend on `http://localhost:5173`.
+3. The backend will listen on `http://localhost:3012`, the frontend on `http://localhost:5173`, and the streaming layer will expose RTMP on `rtmp://localhost:1935`.
 
 The backend and frontend each have their own Dockerfile and docker-compose.yml so you can also start them independently from their folders if you need to.
 

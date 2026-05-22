@@ -263,7 +263,7 @@ function StreamingRow({ token, streaming, companies, onRefresh }: StreamingRowPr
               Generate key
             </button>
           </div>
-          <p className="field-hint">Only super admin can change this. Use the company slug plus 5 safe characters.</p>
+          <p className="field-hint">Only super admin can change this. The control page turns it into a shorter OBS publish key automatically.</p>
         </label>
       </div>
 

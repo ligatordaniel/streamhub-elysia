@@ -17,7 +17,7 @@ hlsEncryption: false
 hlsAllowOrigins: ['*']
 hlsAlwaysRemux: true
 hlsVariant: lowLatency
-hlsSegmentCount: 6
+hlsSegmentCount: 7
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 hlsMuxerCloseAfter: 20s
@@ -38,6 +38,6 @@ pathDefaults:
   overridePublisher: true
 
 paths:
-    '~^tenants/[0-9a-f-]+/streamings/[0-9a-f-]+/(?:[a-z0-9]+(?:-[a-z0-9]+)*-[A-Za-z0-9._~]{5}|[0-9a-f]{32})$':
+  '~^live/[0-9a-f]{16}/[0-9a-f]{16}$':
     source: publisher
     record: false
