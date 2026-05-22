@@ -66,6 +66,31 @@ function EndpointCard({
   );
 }
 
+function PublicEmbedCard({ embedUrl }: { embedUrl: string }): JSX.Element {
+  return (
+    <article className="status-card streaming-endpoint-card streaming-embed-card">
+      <span className="status-eyebrow">Public embed</span>
+      <h2>Iframe player URL</h2>
+      <p>
+        Use this URL for external websites, mobile browsers, and apps. Open it directly or load it inside
+        an iframe.
+      </p>
+
+      <CopyableValue label="Embed page URL" value={embedUrl} />
+
+      <a
+        href={embedUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="streaming-embed-link"
+        aria-label="Open public embed player in a new tab"
+      >
+        Open iframe page
+      </a>
+    </article>
+  );
+}
+
 type CopyState = 'idle' | 'copied' | 'error';
 
 function CopyableValue({ label, value }: { label: string; value: string }): JSX.Element {
@@ -123,22 +148,185 @@ function PublishSettingsCard({
 }): JSX.Element {
   return (
     <article className="status-card streaming-endpoint-card streaming-publish-card">
-      <span className="status-eyebrow">Transmitter PC</span>
       <h2>OBS / vMix publish settings</h2>
-      <p>These shorter publish values keep OBS setup cleaner while preserving the same live path.</p>
-      <CopyableValue label="RTMP server URL" value={serverUrl} />
-      <CopyableValue label="Publish key" value={streamKey} />
-      <CopyableValue label="Combined ingest URL" value={ingestUrl} />
+      <p className="streaming-publish-lead">
+        These shorter publish values keep OBS setup cleaner while preserving the same live path.
+      </p>
+      <div className="streaming-publish-list" role="list">
+        <div className="streaming-publish-row" role="listitem">
+          <CopyableValue label="RTMP server URL" value={serverUrl} />
+        </div>
+        <div className="streaming-publish-row" role="listitem">
+          <CopyableValue label="Publish key" value={streamKey} />
+        </div>
+        <div className="streaming-publish-row" role="listitem">
+          <CopyableValue label="Combined ingest URL" value={ingestUrl} />
+        </div>
+      </div>
     </article>
   );
 }
 
 type PlaybackState = 'connecting' | 'ready' | 'unsupported' | 'error';
 
-function HlsPlayer({ src, title }: { src: string; title: string }): JSX.Element {
+type EmergencyImage = {
+  id: string;
+  name: string;
+  dataUrl: string;
+};
+
+type EmergencyFallbackStorage = {
+  autoplayEnabled: boolean;
+  selectedImageId: string | null;
+  images: EmergencyImage[];
+};
+
+const MAX_EMERGENCY_IMAGES = 10;
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const result = reader.result;
+
+      if (typeof result !== 'string') {
+        reject(new Error('Failed to load image'));
+        return;
+      }
+
+      resolve(result);
+    };
+
+    reader.onerror = () => {
+      reject(new Error('Failed to read image file'));
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+function EmergencyFallbackCard({
+  isConnected,
+  autoplayEnabled,
+  images,
+  selectedImageId,
+  helperMessage,
+  onAutoplayChange,
+  onImageSelect,
+  onSelectImage,
+  onRemoveImage,
+}: {
+  isConnected: boolean;
+  autoplayEnabled: boolean;
+  images: EmergencyImage[];
+  selectedImageId: string | null;
+  helperMessage: string;
+  onAutoplayChange: (nextValue: boolean) => void;
+  onImageSelect: (file: File | null) => void;
+  onSelectImage: (imageId: string) => void;
+  onRemoveImage: (imageId: string) => void;
+}): JSX.Element {
+  return (
+    <article className="status-card streaming-emergency-card">
+      <span className="status-eyebrow">Emergency fallback</span>
+      <div className="streaming-air-head">
+        <h2>ON AIR</h2>
+        <span className={`streaming-air-pill ${isConnected ? 'streaming-air-pill--connected' : 'streaming-air-pill--disconnected'}`}>
+          {isConnected ? 'Connected' : 'Disconnected'}
+        </span>
+      </div>
+      <p>
+        If OBS/vMix stops sending video, this fallback can keep a static emergency image visible in the
+        preview while the live source reconnects.
+      </p>
+
+      <label className="streaming-switch-row" htmlFor="emergency-autoplay-switch">
+        <span>Autoplay on/off</span>
+        <input
+          id="emergency-autoplay-switch"
+          className="streaming-switch"
+          type="checkbox"
+          checked={autoplayEnabled}
+          onChange={(event) => onAutoplayChange(event.target.checked)}
+        />
+      </label>
+
+      <label className="field">
+        <span>Emergency image</span>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(event) => {
+            const [file] = Array.from(event.target.files ?? []);
+            onImageSelect(file ?? null);
+            event.currentTarget.value = '';
+          }}
+        />
+      </label>
+
+      <p className="field-hint">{helperMessage}</p>
+
+      <div className="streaming-fallback-gallery-head">
+        <span>Saved images</span>
+        <span>{images.length}/{MAX_EMERGENCY_IMAGES}</span>
+      </div>
+      <div className="streaming-fallback-gallery" role="list">
+        {images.map((image) => {
+          const isSelected = image.id === selectedImageId;
+
+          return (
+            <div
+              key={image.id}
+              className={`streaming-fallback-thumb ${isSelected ? 'streaming-fallback-thumb--selected' : ''}`}
+              role="listitem"
+            >
+              <button
+                type="button"
+                className="streaming-fallback-select"
+                onClick={() => onSelectImage(image.id)}
+                aria-pressed={isSelected}
+              >
+                <img src={image.dataUrl} alt={image.name} />
+                <span className="streaming-fallback-tick">{isSelected ? 'Ticked' : 'Use'}</span>
+              </button>
+              <div className="streaming-fallback-meta">
+                <span>{image.name}</span>
+                <button
+                  type="button"
+                  className="secondary-button streaming-inline-button"
+                  onClick={() => onRemoveImage(image.id)}
+                  aria-label={`Remove ${image.name}`}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
+function HlsPlayer({
+  src,
+  title,
+  fallbackImageUrl,
+  onStatusChange,
+}: {
+  src: string;
+  title: string;
+  fallbackImageUrl: string | null;
+  onStatusChange?: (status: PlaybackState) => void;
+}): JSX.Element {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [status, setStatus] = useState<PlaybackState>('connecting');
   const [statusMessage, setStatusMessage] = useState('Waiting for the live HLS manifest.');
+
+  useEffect(() => {
+    onStatusChange?.(status);
+  }, [onStatusChange, status]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -277,6 +465,8 @@ function HlsPlayer({ src, title }: { src: string; title: string }): JSX.Element 
     };
   }, [src]);
 
+  const showFallbackImage = status !== 'ready' && Boolean(fallbackImageUrl);
+
   return (
     <article className="status-card streaming-player-card">
       <span className="status-eyebrow">Playback preview</span>
@@ -288,7 +478,7 @@ function HlsPlayer({ src, title }: { src: string; title: string }): JSX.Element 
       <div className={`streaming-player-shell streaming-player-shell--${status}`}>
         <video
           ref={videoRef}
-          className="streaming-player"
+          className={`streaming-player ${showFallbackImage ? 'streaming-player--hidden' : ''}`}
           autoPlay
           controls
           muted
@@ -296,6 +486,12 @@ function HlsPlayer({ src, title }: { src: string; title: string }): JSX.Element 
           preload="metadata"
           aria-label={`${title} HLS playback preview`}
         />
+        {showFallbackImage ? (
+          <div className="streaming-player-fallback">
+            <img src={fallbackImageUrl ?? ''} alt="Emergency fallback" className="streaming-player-fallback-image" />
+            <span className="streaming-player-fallback-badge">Emergency image</span>
+          </div>
+        ) : null}
       </div>
       <p className="streaming-player-status">{statusMessage}</p>
     </article>
@@ -306,6 +502,12 @@ export function StreamingControlPage(): JSX.Element {
   const navigate = useNavigate();
   const { streamingId } = useParams();
   const { session } = useAuth();
+  const [playbackState, setPlaybackState] = useState<PlaybackState>('connecting');
+  const [autoplayFallbackEnabled, setAutoplayFallbackEnabled] = useState(false);
+  const [fallbackImages, setFallbackImages] = useState<EmergencyImage[]>([]);
+  const [selectedFallbackImageId, setSelectedFallbackImageId] = useState<string | null>(null);
+  const [fallbackHelperMessage, setFallbackHelperMessage] = useState('No image selected yet.');
+  const [hasHydratedFallback, setHasHydratedFallback] = useState(false);
 
   if (!session || !streamingId) {
     return <Navigate to="/" replace />;
@@ -323,6 +525,125 @@ export function StreamingControlPage(): JSX.Element {
   const rtmpIngestUrl = `${rtmpServerUrl}/${publishKey}`;
   const hlsPlaybackUrl = `${runtime.streamingHlsUrl}/${streamPath}/index.m3u8`;
   const webRtcUrl = `${runtime.streamingWebrtcUrl}/${streamPath}`;
+  const publicEmbedUrl = `${window.location.origin}/embed/hls/${streamPath}`;
+  const fallbackStorageKey = `streamhub:emergency-fallback:path:${streamPath}`;
+  const legacyFallbackStorageKey = `streamhub:emergency-fallback:${streaming.id}`;
+
+  useEffect(() => {
+    setHasHydratedFallback(false);
+
+    const rawValue = localStorage.getItem(fallbackStorageKey) ?? localStorage.getItem(legacyFallbackStorageKey);
+
+    if (!rawValue) {
+      setAutoplayFallbackEnabled(false);
+      setFallbackImages([]);
+      setSelectedFallbackImageId(null);
+      setFallbackHelperMessage('No image selected yet.');
+      setHasHydratedFallback(true);
+      return;
+    }
+
+    try {
+      const parsedValue = JSON.parse(rawValue) as EmergencyFallbackStorage;
+      const safeImages = Array.isArray(parsedValue.images) ? parsedValue.images.slice(0, MAX_EMERGENCY_IMAGES) : [];
+      const safeSelectedId = safeImages.some((image) => image.id === parsedValue.selectedImageId)
+        ? parsedValue.selectedImageId
+        : safeImages[0]?.id ?? null;
+
+      setAutoplayFallbackEnabled(Boolean(parsedValue.autoplayEnabled));
+      setFallbackImages(safeImages);
+      setSelectedFallbackImageId(safeSelectedId);
+      setFallbackHelperMessage(
+        safeSelectedId
+          ? `Selected image: ${safeImages.find((image) => image.id === safeSelectedId)?.name ?? 'Unknown image'}`
+          : 'No image selected yet.',
+      );
+    } catch {
+      setAutoplayFallbackEnabled(false);
+      setFallbackImages([]);
+      setSelectedFallbackImageId(null);
+      setFallbackHelperMessage('No image selected yet.');
+    }
+
+    setHasHydratedFallback(true);
+  }, [fallbackStorageKey, legacyFallbackStorageKey]);
+
+  useEffect(() => {
+    if (!hasHydratedFallback) {
+      return;
+    }
+
+    const payload: EmergencyFallbackStorage = {
+      autoplayEnabled: autoplayFallbackEnabled,
+      selectedImageId: selectedFallbackImageId,
+      images: fallbackImages,
+    };
+
+    localStorage.setItem(fallbackStorageKey, JSON.stringify(payload));
+  }, [autoplayFallbackEnabled, fallbackImages, fallbackStorageKey, hasHydratedFallback, selectedFallbackImageId]);
+
+  async function handleEmergencyImageSelection(file: File | null): Promise<void> {
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setFallbackHelperMessage('Only image files are allowed.');
+      return;
+    }
+
+    if (fallbackImages.length >= MAX_EMERGENCY_IMAGES) {
+      setFallbackHelperMessage('Maximum reached. Remove one image before uploading a new one.');
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const newImage: EmergencyImage = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+        name: file.name,
+        dataUrl,
+      };
+
+      setFallbackImages((previous) => [...previous, newImage]);
+      setSelectedFallbackImageId(newImage.id);
+      setFallbackHelperMessage(`Selected image: ${newImage.name}`);
+    } catch {
+      setFallbackHelperMessage('Could not load this image. Try another file.');
+    }
+  }
+
+  function handleSelectFallbackImage(imageId: string): void {
+    const selectedImage = fallbackImages.find((image) => image.id === imageId);
+    setSelectedFallbackImageId(imageId);
+    setFallbackHelperMessage(
+      selectedImage ? `Selected image: ${selectedImage.name}` : 'No image selected yet.',
+    );
+  }
+
+  function handleRemoveFallbackImage(imageId: string): void {
+    setFallbackImages((previous) => {
+      const nextImages = previous.filter((image) => image.id !== imageId);
+
+      let nextSelectedId = selectedFallbackImageId;
+
+      if (nextSelectedId === imageId || !nextImages.some((image) => image.id === nextSelectedId)) {
+        nextSelectedId = nextImages[0]?.id ?? null;
+      }
+
+      const nextSelectedImage = nextImages.find((image) => image.id === nextSelectedId);
+
+      setSelectedFallbackImageId(nextSelectedId);
+      setFallbackHelperMessage(
+        nextSelectedImage ? `Selected image: ${nextSelectedImage.name}` : 'No image selected yet.',
+      );
+
+      return nextImages;
+    });
+  }
+
+  const selectedFallbackImage = fallbackImages.find((image) => image.id === selectedFallbackImageId) ?? null;
+  const effectiveFallbackImage = autoplayFallbackEnabled ? selectedFallbackImage?.dataUrl ?? null : null;
 
   return (
     <main className="dashboard-page w-full">
@@ -343,22 +664,6 @@ export function StreamingControlPage(): JSX.Element {
           <div className="streaming-control-column">
             <PublishSettingsCard serverUrl={rtmpServerUrl} streamKey={publishKey} ingestUrl={rtmpIngestUrl} />
 
-            <article className="status-card streaming-settings-card">
-              <span className="status-eyebrow">Recommended settings</span>
-              <h2>Low server load preset</h2>
-              <ul className="streaming-settings-list">
-                <li>Video codec: H.264</li>
-                <li>Audio codec: AAC</li>
-                <li>Encoder: hardware on the transmitter PC</li>
-                <li>Recording: local or separate worker only</li>
-                <li>Server: MediaMTX relay, no live transcoding</li>
-              </ul>
-            </article>
-          </div>
-
-          <div className="streaming-control-column">
-            <HlsPlayer src={hlsPlaybackUrl} title={streaming.name} />
-
             <EndpointCard
               eyebrow="Playback"
               title="HLS viewer URL"
@@ -366,6 +671,8 @@ export function StreamingControlPage(): JSX.Element {
               label="HLS playlist"
               value={hlsPlaybackUrl}
             />
+
+            <PublicEmbedCard embedUrl={publicEmbedUrl} />
 
             <article className="status-card streaming-settings-card">
               <span className="status-eyebrow">Optional low latency</span>
@@ -376,6 +683,29 @@ export function StreamingControlPage(): JSX.Element {
               </p>
               <CopyableValue label="WebRTC base URL" value={webRtcUrl} />
             </article>
+          </div>
+
+          <div className="streaming-control-column">
+            <HlsPlayer
+              src={hlsPlaybackUrl}
+              title={streaming.name}
+              fallbackImageUrl={effectiveFallbackImage}
+              onStatusChange={setPlaybackState}
+            />
+
+            <EmergencyFallbackCard
+              isConnected={playbackState === 'ready'}
+              autoplayEnabled={autoplayFallbackEnabled}
+              images={fallbackImages}
+              selectedImageId={selectedFallbackImageId}
+              helperMessage={fallbackHelperMessage}
+              onAutoplayChange={setAutoplayFallbackEnabled}
+              onImageSelect={(file) => {
+                void handleEmergencyImageSelection(file);
+              }}
+              onSelectImage={handleSelectFallbackImage}
+              onRemoveImage={handleRemoveFallbackImage}
+            />
           </div>
         </section>
       </section>
