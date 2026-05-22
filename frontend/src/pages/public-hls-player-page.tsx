@@ -28,6 +28,7 @@ export function PublicHlsPlayerPage(): JSX.Element {
   const [status, setStatus] = useState<PlaybackState>('connecting');
   const [statusMessage, setStatusMessage] = useState('Connecting to the live HLS playlist.');
   const [fallbackImageUrl, setFallbackImageUrl] = useState<string | null>(null);
+  const [hasPlayableSignal, setHasPlayableSignal] = useState(false);
 
   if (!streamingAlias || !publishKey) {
     return (
@@ -100,6 +101,7 @@ export function PublicHlsPlayerPage(): JSX.Element {
     let disposed = false;
 
     const resetVideo = (): void => {
+      setHasPlayableSignal(false);
       video.pause();
       video.removeAttribute('src');
       video.load();
@@ -110,6 +112,7 @@ export function PublicHlsPlayerPage(): JSX.Element {
         return;
       }
 
+      setHasPlayableSignal(true);
       setStatus('ready');
       setStatusMessage('Live signal connected.');
     };
@@ -117,6 +120,10 @@ export function PublicHlsPlayerPage(): JSX.Element {
     const markWaiting = (message: string): void => {
       if (disposed) {
         return;
+      }
+
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        setHasPlayableSignal(false);
       }
 
       setStatus('connecting');
@@ -128,13 +135,29 @@ export function PublicHlsPlayerPage(): JSX.Element {
         return;
       }
 
+      setHasPlayableSignal(false);
       setStatus('unsupported');
       setStatusMessage(message);
+    };
+
+    const handlePlayableSignal = (): void => {
+      markReady();
+    };
+
+    const handleVideoEmptied = (): void => {
+      if (!disposed) {
+        setHasPlayableSignal(false);
+      }
     };
 
     setStatus('connecting');
     setStatusMessage('Connecting to the live HLS playlist.');
     resetVideo();
+
+    video.addEventListener('playing', handlePlayableSignal);
+    video.addEventListener('canplay', handlePlayableSignal);
+    video.addEventListener('loadeddata', handlePlayableSignal);
+    video.addEventListener('emptied', handleVideoEmptied);
 
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       const handleCanPlay = (): void => {
@@ -152,6 +175,10 @@ export function PublicHlsPlayerPage(): JSX.Element {
 
       return () => {
         disposed = true;
+        video.removeEventListener('playing', handlePlayableSignal);
+        video.removeEventListener('canplay', handlePlayableSignal);
+        video.removeEventListener('loadeddata', handlePlayableSignal);
+        video.removeEventListener('emptied', handleVideoEmptied);
         video.removeEventListener('error', handleError);
         resetVideo();
       };
@@ -198,12 +225,16 @@ export function PublicHlsPlayerPage(): JSX.Element {
 
     return () => {
       disposed = true;
+      video.removeEventListener('playing', handlePlayableSignal);
+      video.removeEventListener('canplay', handlePlayableSignal);
+      video.removeEventListener('loadeddata', handlePlayableSignal);
+      video.removeEventListener('emptied', handleVideoEmptied);
       hls?.destroy();
       resetVideo();
     };
   }, [playbackUrl]);
 
-  const showFallbackImage = status !== 'ready' && Boolean(fallbackImageUrl);
+  const showFallbackImage = !hasPlayableSignal && Boolean(fallbackImageUrl);
 
   return (
     <main className="dashboard-page w-full public-player-page">

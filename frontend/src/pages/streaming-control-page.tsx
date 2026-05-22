@@ -323,6 +323,7 @@ function HlsPlayer({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [status, setStatus] = useState<PlaybackState>('connecting');
   const [statusMessage, setStatusMessage] = useState('Waiting for the live HLS manifest.');
+  const [hasPlayableSignal, setHasPlayableSignal] = useState(false);
 
   useEffect(() => {
     onStatusChange?.(status);
@@ -340,6 +341,7 @@ function HlsPlayer({
     let autoplayAttempted = false;
 
     const resetVideo = (): void => {
+      setHasPlayableSignal(false);
       video.pause();
       video.removeAttribute('src');
       video.load();
@@ -371,6 +373,7 @@ function HlsPlayer({
         return;
       }
 
+      setHasPlayableSignal(true);
       setStatus('ready');
       setStatusMessage('Live signal is ready. Starting the muted preview.');
       void attemptAutoplay();
@@ -379,6 +382,10 @@ function HlsPlayer({
     const markWaiting = (message: string): void => {
       if (disposed) {
         return;
+      }
+
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        setHasPlayableSignal(false);
       }
 
       setStatus('connecting');
@@ -390,13 +397,29 @@ function HlsPlayer({
         return;
       }
 
+      setHasPlayableSignal(false);
       setStatus('unsupported');
       setStatusMessage(message);
+    };
+
+    const handlePlayableSignal = (): void => {
+      markReady();
+    };
+
+    const handleVideoEmptied = (): void => {
+      if (!disposed) {
+        setHasPlayableSignal(false);
+      }
     };
 
     setStatus('connecting');
     setStatusMessage('Connecting to the live HLS playlist.');
     resetVideo();
+
+    video.addEventListener('playing', handlePlayableSignal);
+    video.addEventListener('canplay', handlePlayableSignal);
+    video.addEventListener('loadeddata', handlePlayableSignal);
+    video.addEventListener('emptied', handleVideoEmptied);
 
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       const handleCanPlay = (): void => {
@@ -414,6 +437,10 @@ function HlsPlayer({
 
       return () => {
         disposed = true;
+        video.removeEventListener('playing', handlePlayableSignal);
+        video.removeEventListener('canplay', handlePlayableSignal);
+        video.removeEventListener('loadeddata', handlePlayableSignal);
+        video.removeEventListener('emptied', handleVideoEmptied);
         video.removeEventListener('error', handleError);
         resetVideo();
       };
@@ -460,12 +487,16 @@ function HlsPlayer({
 
     return () => {
       disposed = true;
+      video.removeEventListener('playing', handlePlayableSignal);
+      video.removeEventListener('canplay', handlePlayableSignal);
+      video.removeEventListener('loadeddata', handlePlayableSignal);
+      video.removeEventListener('emptied', handleVideoEmptied);
       hls?.destroy();
       resetVideo();
     };
   }, [src]);
 
-  const showFallbackImage = status !== 'ready' && Boolean(fallbackImageUrl);
+  const showFallbackImage = !hasPlayableSignal && Boolean(fallbackImageUrl);
 
   return (
     <article className="status-card streaming-player-card">
