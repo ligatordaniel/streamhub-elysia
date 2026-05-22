@@ -62,6 +62,28 @@ function compareText(left: string, right: string): number {
   return adminTextCollator.compare(left, right);
 }
 
+const streamingKeyCharacters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~';
+
+function normalizeCompanySlug(companyName: string): string {
+  const normalizedName = companyName.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+  const slug = normalizedName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return slug || 'stream';
+}
+
+function randomStreamingSuffix(length: number): string {
+  const randomValues = crypto.getRandomValues(new Uint8Array(length));
+
+  return Array.from(randomValues, (value) => streamingKeyCharacters[value % streamingKeyCharacters.length]).join('');
+}
+
+function buildStreamingKey(companyName: string): string {
+  return `${normalizeCompanySlug(companyName)}-${randomStreamingSuffix(5)}`;
+}
+
 function CompanyRow({ token, company, onRefresh }: CompanyRowProps): JSX.Element {
   const [name, setName] = useState(company.name);
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +153,7 @@ function StreamingRow({ token, streaming, companies, onRefresh }: StreamingRowPr
   const [name, setName] = useState(streaming.name);
   const [companyId, setCompanyId] = useState(streaming.companyId);
   const [type, setType] = useState<StreamingType>(streaming.type);
+  const [ingestKey, setIngestKey] = useState(streaming.ingestKey);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -138,7 +161,8 @@ function StreamingRow({ token, streaming, companies, onRefresh }: StreamingRowPr
     setName(streaming.name);
     setCompanyId(streaming.companyId);
     setType(streaming.type);
-  }, [streaming.companyId, streaming.name, streaming.type]);
+    setIngestKey(streaming.ingestKey);
+  }, [streaming.companyId, streaming.ingestKey, streaming.name, streaming.type]);
 
   const selectedCompanyName = companies.find((entry) => entry.id === companyId)?.name ?? companyId;
 
@@ -146,14 +170,32 @@ function StreamingRow({ token, streaming, companies, onRefresh }: StreamingRowPr
     setSaving(true);
     setError(null);
 
+    const trimmedIngestKey = ingestKey.trim();
+
+    if (!trimmedIngestKey) {
+      setError('Stream key is required.');
+      setSaving(false);
+      return;
+    }
+
     try {
-      await updateStreaming(token, streaming.id, { companyId, type, name });
+      const payload: UpdateStreamingPayload = { companyId, type, name };
+
+      if (trimmedIngestKey !== streaming.ingestKey) {
+        payload.ingestKey = trimmedIngestKey;
+      }
+
+      await updateStreaming(token, streaming.id, payload);
       await onRefresh();
     } catch (saveError) {
       setError(toErrorMessage(saveError, 'Unable to update streaming.'));
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleGenerateKey(): void {
+    setIngestKey(buildStreamingKey(selectedCompanyName));
   }
 
   async function handleDelete(): Promise<void> {
@@ -211,6 +253,17 @@ function StreamingRow({ token, streaming, companies, onRefresh }: StreamingRowPr
               </option>
             ))}
           </select>
+        </label>
+
+        <label className="field compact">
+          <span>Stream key</span>
+          <div className="field-inline-actions">
+            <input value={ingestKey} onChange={(event) => setIngestKey(event.target.value)} />
+            <button className="secondary-button streaming-inline-button" type="button" onClick={handleGenerateKey} disabled={saving}>
+              Generate key
+            </button>
+          </div>
+          <p className="field-hint">Only super admin can change this. Use the company slug plus 5 safe characters.</p>
         </label>
       </div>
 

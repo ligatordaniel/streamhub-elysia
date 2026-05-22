@@ -1,0 +1,43 @@
+logLevel: info
+logDestinations: [stdout]
+logStructured: false
+
+api: false
+metrics: false
+pprof: false
+playback: false
+
+rtmp: true
+rtmpEncryption: "no"
+rtmpAddress: :1935
+
+hls: true
+hlsAddress: :8888
+hlsEncryption: false
+hlsAllowOrigins: ['*']
+hlsAlwaysRemux: true
+hlsVariant: lowLatency
+hlsSegmentCount: 6
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsMuxerCloseAfter: 20s
+
+webrtc: true
+webrtcAddress: :8889
+webrtcEncryption: false
+webrtcAllowOrigins: ['*']
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: ''
+webrtcIPsFromInterfaces: false
+webrtcAdditionalHosts: ['localhost']
+webrtcICEServers2: []
+
+pathDefaults:
+  source: publisher
+  record: false
+  overridePublisher: true
+
+paths:
+    '~^tenants/[0-9a-f-]+/streamings/[0-9a-f-]+/(?:[a-z0-9]+(?:-[a-z0-9]+)*-[A-Za-z0-9._~]{5}|[0-9a-f]{32})$':
+    source: publisher
+    record: false

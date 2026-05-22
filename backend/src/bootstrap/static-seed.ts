@@ -19,9 +19,12 @@ export function seedStaticData(db: Database): void {
 
   for (const streaming of getSeedStreamings(seedData)) {
     if (!findStreamingById(db, streaming.id)) {
+      const company = findCompanyById(db, streaming.companyId);
+
       upsertStreaming(db, {
         id: streaming.id,
         companyId: streaming.companyId,
+        ...(company ? { companyName: company.name } : {}),
         type: streaming.type,
         name: streaming.name,
       });

@@ -60,13 +60,14 @@ function padBase64Url(value: string): string {
 
 function decodeTokenExpiry(token: string): number {
   const parts = token.split('.');
+  const payloadPart = parts[1];
 
-  if (parts.length !== 3) {
+  if (parts.length !== 3 || !payloadPart) {
     return Date.now() + 86_400_000;
   }
 
   try {
-    const payload = JSON.parse(window.atob(padBase64Url(parts[1])));
+    const payload = JSON.parse(window.atob(padBase64Url(payloadPart)));
 
     if (typeof payload.exp === 'number') {
       return payload.exp;

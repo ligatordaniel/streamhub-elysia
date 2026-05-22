@@ -52,6 +52,13 @@ export default defineConfig({
   define: {
     __STREAMHUB_APP_NAME__: JSON.stringify(env.APP_NAME ?? 'StreamHub'),
     __STREAMHUB_API_URL__: JSON.stringify(env.VITE_API_URL ?? 'http://localhost:3012'),
+    __STREAMHUB_STREAMING_INGEST_URL__: JSON.stringify(
+      env.STREAMING_INGEST_URL ?? 'http://localhost:1935'
+    ),
+    __STREAMHUB_STREAMING_HLS_URL__: JSON.stringify(env.STREAMING_HLS_URL ?? 'http://localhost:8080/hls'),
+    __STREAMHUB_STREAMING_WEBRTC_URL__: JSON.stringify(
+      env.STREAMING_WEBRTC_URL ?? 'http://localhost:8082/webrtc'
+    ),
   },
   server: {
     host: '0.0.0.0',

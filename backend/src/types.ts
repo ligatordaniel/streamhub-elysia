@@ -26,6 +26,7 @@ export interface PublicCompany {
 export interface PublicStreaming {
   id: string;
   companyId: string;
+  ingestKey: string;
   type: StreamingType;
   name: string;
   createdAt: string;

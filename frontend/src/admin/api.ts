@@ -26,6 +26,7 @@ export interface UpdateStreamingPayload {
   companyId?: string;
   type?: StreamingType;
   name?: string;
+  ingestKey?: string;
 }
 
 export interface CreateUserPayload {

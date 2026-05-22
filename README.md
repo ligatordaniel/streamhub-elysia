@@ -6,6 +6,8 @@ Monorepo for a company-scoped audio/video streaming platform with a single root 
 - `frontend/` React + Vite + Tailwind CSS client.
 - `backend/` Bun + Elysia API.
 - `database/` shared SQLite schema, UUID seed data, and local data directory.
+- `docs/streaming/` streaming architecture and runbook notes.
+- `infra/streaming/` MediaMTX, Nginx, and compose config for the media plane.
 - `.env.main` root environment contract used by both apps.
 
 ## Domain
@@ -27,5 +29,7 @@ Monorepo for a company-scoped audio/video streaming platform with a single root 
 3. The backend will listen on `http://localhost:3012` and the frontend on `http://localhost:5173`.
 
 The backend and frontend each have their own Dockerfile and docker-compose.yml so you can also start them independently from their folders if you need to.
+
+The streaming layer lives under `infra/streaming/` and is intentionally separate so the transmitter PC can carry the encode load while the server stays thin.
 
 The backend database config lives in `backend/src/config/database.ts` and only points at the shared `database/` assets.

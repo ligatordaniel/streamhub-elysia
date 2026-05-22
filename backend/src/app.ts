@@ -23,6 +23,7 @@ import {
 import {
   deleteStreamingById,
   findStreamingById,
+  isValidStreamingKey,
   listAllStreamings,
   listStreamingsByCompanyId,
   upsertStreaming,
@@ -56,6 +57,7 @@ interface UpdateStreamingRequest {
   companyId?: string;
   type?: StreamingType;
   name?: string;
+  ingestKey?: string;
 }
 
 interface CreateUserRequest {
@@ -161,20 +163,36 @@ function parseUpdateStreamingRequest(body: unknown): UpdateStreamingRequest | nu
   }
 
   const record = body as Record<string, unknown>;
-  const companyId = record.companyId === undefined ? undefined : parseUuid(record.companyId);
-  const type = record.type === undefined ? undefined : parseStreamingType(record.type);
-  const name = record.name === undefined ? undefined : parseNonEmptyString(record.name);
+  const parsedCompanyId = record.companyId === undefined ? undefined : parseUuid(record.companyId);
+  const parsedType = record.type === undefined ? undefined : parseStreamingType(record.type);
+  const parsedName = record.name === undefined ? undefined : parseNonEmptyString(record.name);
+  const rawIngestKey = record.ingestKey === undefined ? undefined : parseNonEmptyString(record.ingestKey);
+  const companyId = typeof parsedCompanyId === 'string' ? parsedCompanyId : undefined;
+  const type = parsedType === undefined || parsedType === null ? undefined : parsedType;
+  const name = typeof parsedName === 'string' ? parsedName : undefined;
+  const ingestKey = typeof rawIngestKey === 'string' ? rawIngestKey : undefined;
+  const hasCompanyId = record.companyId !== undefined;
+  const hasType = record.type !== undefined;
+  const hasName = record.name !== undefined;
+  const hasIngestKey = record.ingestKey !== undefined;
 
   if (
-    (record.companyId !== undefined && !companyId) ||
-    (record.type !== undefined && !type) ||
-    (record.name !== undefined && !name) ||
-    (companyId === undefined && type === undefined && name === undefined)
+    (hasCompanyId && !companyId) ||
+    (hasType && !type) ||
+    (hasName && !name) ||
+    (hasIngestKey && !ingestKey) ||
+    (typeof rawIngestKey === 'string' && !isValidStreamingKey(rawIngestKey)) ||
+    (!hasCompanyId && !hasType && !hasName && !hasIngestKey)
   ) {
     return null;
   }
 
-  return { companyId, type, name };
+  return {
+    ...(companyId !== undefined ? { companyId } : {}),
+    ...(type !== undefined ? { type } : {}),
+    ...(name !== undefined ? { name } : {}),
+    ...(ingestKey !== undefined ? { ingestKey } : {}),
+  };
 }
 
 function parseCreateUserRequest(body: unknown): CreateUserRequest | null {
@@ -574,7 +592,12 @@ export function createApp({ env, db }: AppOptions): Elysia {
         return { error: 'Company not found.' };
       }
 
-      return upsertStreaming(db, payload);
+      const company = findCompanyById(db, payload.companyId);
+
+      return upsertStreaming(db, {
+        ...payload,
+        ...(company ? { companyName: company.name } : {}),
+      });
     })
     .patch('/admin/streamings/:streamingId', async ({ request, params, body, set }) => {
       const session = await requireSuperAdminSession(env, db, request);
@@ -600,8 +623,9 @@ export function createApp({ env, db }: AppOptions): Elysia {
       }
 
       const nextCompanyId = payload.companyId ?? existingStreaming.companyId;
+      const nextCompany = findCompanyById(db, nextCompanyId);
 
-      if (!findCompanyById(db, nextCompanyId)) {
+      if (!nextCompany) {
         set.status = 404;
         return { error: 'Company not found.' };
       }
@@ -609,8 +633,10 @@ export function createApp({ env, db }: AppOptions): Elysia {
       return upsertStreaming(db, {
         id: streamingId,
         companyId: nextCompanyId,
+        ...(nextCompany ? { companyName: nextCompany.name } : {}),
         type: payload.type ?? existingStreaming.type,
         name: payload.name ?? existingStreaming.name,
+        ...(payload.ingestKey !== undefined ? { ingestKey: payload.ingestKey } : {}),
       });
     })
     .delete('/admin/streamings/:streamingId', async ({ request, params, set }) => {

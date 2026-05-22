@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS streamings (
   id TEXT PRIMARY KEY,
   company_id TEXT NOT NULL REFERENCES companies (id) ON DELETE RESTRICT,
+  ingest_key TEXT NOT NULL UNIQUE,
   type TEXT NOT NULL CHECK (type IN ('audio', 'video')),
   name TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),

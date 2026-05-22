@@ -17,6 +17,14 @@ Build a streaming platform for audio and video with a focus on low latency, stro
 - Prefer HLS or LL-HLS for broadcast or VOD style delivery when latency can be higher.
 - Keep ingest, transcoding, delivery, auth, and playback concerns separated.
 - Document any transport, codec, or storage decision in this file before using it broadly.
+- Baseline live video uses H.264 plus AAC from the transmitter PC.
+- MediaMTX is the core streaming server for RTMP ingest, HLS playback, and optional WebRTC.
+- The live server must not transcode by default; encoding stays on the transmitter PC.
+- Stream paths are tenant-scoped and opaque: `tenants/<companyId>/streamings/<streamingId>/<ingestKey>`.
+- Nginx fronts HLS and the WebRTC HTTP handshake; RTMP ingest stays direct to MediaMTX.
+- The streaming control page renders a real HLS player and falls back to hls.js when the browser lacks native HLS support.
+- The streaming control page shows the RTMP server URL and stream key separately for OBS or vMix, plus the combined ingest URL for convenience.
+- Stream keys are generated as `<company-slug>-<5 safe chars>` and are editable only by super_admin in the admin console.
 
 ## Repository layout
 - frontend/ contains the React + Vite client and its Tailwind CSS styling layer.
@@ -43,6 +51,8 @@ Build a streaming platform for audio and video with a focus on low latency, stro
 - JWT_SECRET, JWT_ISSUER, JWT_AUDIENCE, and JWT_TTL_SECONDS define the auth token contract.
 - SUPER_ADMIN_EMAIL, SUPER_ADMIN_PASSWORD, and SUPER_ADMIN_NAME seed the first admin account.
 - VITE_API_URL is the frontend build-time API base URL (default: http://localhost:3012).
+- STREAMING_INGEST_URL is the public RTMP base URL used with a separate stream key.
+- STREAMING_HLS_URL and STREAMING_WEBRTC_URL define the browser playback endpoints used by the control page.
 
 ## Frontend styling contract
 - The frontend styling system is Tailwind CSS on top of Vite.
