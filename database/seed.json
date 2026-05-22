@@ -1,0 +1,34 @@
+{
+  "companies": [
+    {
+      "id": "5b4c4d7b-2c0d-4f3f-8c4b-43f8f5f2a111",
+      "name": "scriptdog_limitada"
+    }
+  ],
+  "streamings": [
+    {
+      "id": "b4c1f8b4-8c8d-4c3a-8ed1-5c0a0b6e1001",
+      "companyId": "5b4c4d7b-2c0d-4f3f-8c4b-43f8f5f2a111",
+      "type": "audio",
+      "name": "Scriptdog Audio 1"
+    },
+    {
+      "id": "b4c1f8b4-8c8d-4c3a-8ed1-5c0a0b6e1002",
+      "companyId": "5b4c4d7b-2c0d-4f3f-8c4b-43f8f5f2a111",
+      "type": "audio",
+      "name": "Scriptdog Audio 2"
+    },
+    {
+      "id": "d8a9f9f1-6540-4dc0-8ee8-5b8d1f8e2001",
+      "companyId": "5b4c4d7b-2c0d-4f3f-8c4b-43f8f5f2a111",
+      "type": "video",
+      "name": "Scriptdog Video 1"
+    },
+    {
+      "id": "d8a9f9f1-6540-4dc0-8ee8-5b8d1f8e2002",
+      "companyId": "5b4c4d7b-2c0d-4f3f-8c4b-43f8f5f2a111",
+      "type": "video",
+      "name": "Scriptdog Video 2"
+    }
+  ]
+}

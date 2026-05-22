@@ -1,0 +1,14 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: sh -lc "bun install && bun run dev -- --host 0.0.0.0 --port 5173 --strictPort"
+    ports:
+      - '5173:5173'
+    volumes:
+      - ..:/workspace
+      - frontend_node_modules:/workspace/frontend/node_modules
+
+volumes:
+  frontend_node_modules:

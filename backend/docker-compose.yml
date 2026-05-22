@@ -1,0 +1,14 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: sh -lc "bun install && bun run dev"
+    ports:
+      - '3012:3012'
+    volumes:
+      - ..:/workspace
+      - backend_node_modules:/workspace/backend/node_modules
+
+volumes:
+  backend_node_modules:

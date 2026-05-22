@@ -1,0 +1,17 @@
+{
+  "name": "streamhub-elysia",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev:backend": "bun --cwd backend run dev",
+    "dev:frontend": "bun --cwd frontend run dev",
+    "typecheck:backend": "bun --cwd backend run typecheck",
+    "typecheck:frontend": "bun --cwd frontend run typecheck",
+    "build:frontend": "bun --cwd frontend run build",
+    "localdeploy": "sh ./localdeploy"
+  }
+}
