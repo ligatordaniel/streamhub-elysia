@@ -25,6 +25,8 @@ Build a streaming platform for audio and video with a focus on low latency, stro
 - The streaming control page renders a real HLS player and falls back to hls.js when the browser lacks native HLS support.
 - The streaming control page shows a shortened RTMP publish URL prefix and shortened publish key separately for OBS or vMix, plus the combined ingest URL for convenience.
 - Stored ingest keys are editable only by super_admin in the admin console, and the control page derives short opaque publish aliases from the streaming id and ingest key.
+- Emergency fallback images are shared at the company level, not per streaming path or browser session.
+- Each company can store up to 10 emergency fallback images, with one selected image and one autoplay flag used by both the control page and the public embed player.
 
 ## Repository layout
 - frontend/ contains the React + Vite client and its Tailwind CSS styling layer.

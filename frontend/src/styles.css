@@ -718,6 +718,20 @@ button:disabled {
   border-color: rgba(248, 113, 113, 0.35);
 }
 
+.streaming-player-overlay-label {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: rgba(15, 23, 42, 0.62);
+  color: #fee2e2;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .streaming-player {
   @apply block w-full;
   height: 100%;
@@ -982,16 +996,28 @@ button:disabled {
 }
 
 .streaming-fallback-meta {
-  @apply flex items-center justify-between gap-2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .streaming-fallback-meta span {
+  display: block;
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
   font-size: 0.78rem;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.streaming-fallback-meta .streaming-inline-button {
+  flex-shrink: 0;
 }
 
 .streaming-endpoint-card h2,

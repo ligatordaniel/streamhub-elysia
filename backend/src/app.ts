@@ -7,7 +7,9 @@ import { createAuthToken, verifyAuthToken } from './lib/token';
 import type {
   AdminOverview,
   AppEnv,
+  CompanyEmergencyFallback,
   CurrentSession,
+  EmergencyImage,
   LoginRequest,
   StreamingType,
   UserRole,
@@ -20,6 +22,12 @@ import {
   listCompanies,
   upsertCompany,
 } from './services/companies';
+import {
+  findCompanyEmergencyFallback,
+  findPublicEmergencyFallbackByOpaquePath,
+  MAX_COMPANY_EMERGENCY_IMAGES,
+  saveCompanyEmergencyFallback,
+} from './services/emergency-fallbacks';
 import {
   deleteStreamingById,
   findStreamingById,
@@ -76,6 +84,12 @@ interface UpdateUserRequest {
   role?: UserRole;
 }
 
+interface StreamingEmergencyFallbackRequest {
+  autoplayEnabled: boolean;
+  selectedImageId: string | null;
+  images: EmergencyImage[];
+}
+
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -127,6 +141,70 @@ function parseLoginRequest(body: unknown): LoginRequest | null {
   }
 
   return { email, password };
+}
+
+function parseEmergencyImage(value: unknown): EmergencyImage | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const id = parseNonEmptyString(record.id);
+  const name = parseNonEmptyString(record.name);
+  const dataUrl = parseNonEmptyString(record.dataUrl);
+
+  if (!id || !name || !dataUrl || !dataUrl.startsWith('data:image/')) {
+    return null;
+  }
+
+  return {
+    id,
+    name,
+    dataUrl,
+  };
+}
+
+function parseStreamingEmergencyFallbackRequest(body: unknown): StreamingEmergencyFallbackRequest | null {
+  if (typeof body !== 'object' || body === null) {
+    return null;
+  }
+
+  const record = body as Record<string, unknown>;
+
+  if (typeof record.autoplayEnabled !== 'boolean' || !Array.isArray(record.images)) {
+    return null;
+  }
+
+  const images: EmergencyImage[] = [];
+
+  for (const image of record.images) {
+    const parsedImage = parseEmergencyImage(image);
+
+    if (!parsedImage) {
+      return null;
+    }
+
+    images.push(parsedImage);
+  }
+
+  if (images.length > MAX_COMPANY_EMERGENCY_IMAGES) {
+    return null;
+  }
+
+  const selectedImageId =
+    record.selectedImageId === undefined || record.selectedImageId === null
+      ? null
+      : parseNonEmptyString(record.selectedImageId);
+
+  if (record.selectedImageId !== undefined && record.selectedImageId !== null && !selectedImageId) {
+    return null;
+  }
+
+  return {
+    autoplayEnabled: record.autoplayEnabled,
+    selectedImageId,
+    images,
+  };
 }
 
 function parseCreateCompanyRequest(body: unknown): CreateCompanyRequest | null {
@@ -330,6 +408,17 @@ async function requireSuperAdminSession(env: AppEnv, db: Database, request: Requ
   return session;
 }
 
+function resolveEmergencyFallbackCompanyId(
+  session: CurrentSession,
+  fallbackStreaming: { companyId: string }
+): string | null {
+  if (session.user.role === 'super_admin') {
+    return fallbackStreaming.companyId;
+  }
+
+  return session.company.id === fallbackStreaming.companyId ? session.company.id : null;
+}
+
 export function createApp({ env, db }: AppOptions): Elysia {
   return new Elysia()
     .use(cors({ origin: env.corsOrigin }))
@@ -406,6 +495,87 @@ export function createApp({ env, db }: AppOptions): Elysia {
       }
 
       return { streamings: session.streamings };
+    })
+    .get('/streamings/:streamingId/emergency-fallback', async ({ request, params, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const streamingId = parseUuid(params.streamingId);
+
+      if (!streamingId) {
+        set.status = 400;
+        return { error: 'Valid streaming id is required.' };
+      }
+
+      const streaming = findStreamingById(db, streamingId);
+
+      if (!streaming) {
+        set.status = 404;
+        return { error: 'Streaming not found.' };
+      }
+
+      const companyId = resolveEmergencyFallbackCompanyId(session, streaming);
+
+      if (!companyId) {
+        set.status = 404;
+        return { error: 'Streaming not found.' };
+      }
+
+      return findCompanyEmergencyFallback(db, companyId);
+    })
+    .put('/streamings/:streamingId/emergency-fallback', async ({ request, params, body, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const streamingId = parseUuid(params.streamingId);
+      const payload = parseStreamingEmergencyFallbackRequest(body);
+
+      if (!streamingId || !payload) {
+        set.status = 400;
+        return { error: 'Emergency fallback payload is invalid.' };
+      }
+
+      const streaming = findStreamingById(db, streamingId);
+
+      if (!streaming) {
+        set.status = 404;
+        return { error: 'Streaming not found.' };
+      }
+
+      const companyId = resolveEmergencyFallbackCompanyId(session, streaming);
+
+      if (!companyId) {
+        set.status = 404;
+        return { error: 'Streaming not found.' };
+      }
+
+      return saveCompanyEmergencyFallback(db, companyId, payload as CompanyEmergencyFallback);
+    })
+    .get('/public/streamings/:streamingAlias/:publishKey/emergency-fallback', async ({ params, set }) => {
+      const streamingAlias = parseNonEmptyString(params.streamingAlias);
+      const publishKey = parseNonEmptyString(params.publishKey);
+
+      if (!streamingAlias || !publishKey) {
+        set.status = 400;
+        return { error: 'Valid streaming alias and publish key are required.' };
+      }
+
+      const fallback = findPublicEmergencyFallbackByOpaquePath(db, streamingAlias, publishKey);
+
+      if (!fallback) {
+        set.status = 404;
+        return { error: 'Streaming not found.' };
+      }
+
+      return fallback;
     })
     .get('/admin/overview', async ({ request, set }) => {
       const session = await requireSuperAdminSession(env, db, request);

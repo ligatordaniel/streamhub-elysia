@@ -94,6 +94,24 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function hashOpaqueToken(value: string): string {
+  let firstHash = 0x811c9dc5;
+  let secondHash = 0x9e3779b9;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const codePoint = value.charCodeAt(index);
+
+    firstHash ^= codePoint;
+    firstHash = Math.imul(firstHash, 0x01000193);
+    secondHash ^= codePoint;
+    secondHash = Math.imul(secondHash, 0x85ebca6b);
+  }
+
+  return `${(firstHash >>> 0).toString(16).padStart(8, '0')}${(secondHash >>> 0)
+    .toString(16)
+    .padStart(8, '0')}`;
+}
+
 function normalizeCompanySlug(companyName: string): string {
   const normalizedName = companyName.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
   const slug = normalizedName
@@ -112,6 +130,14 @@ function randomStreamingSuffix(length: number): string {
 
 export function generateStreamingKey(companyName: string): string {
   return `${normalizeCompanySlug(companyName)}-${randomStreamingSuffix(5)}`;
+}
+
+export function buildStreamingAlias(streamingId: string): string {
+  return hashOpaqueToken(`streaming:${streamingId}`);
+}
+
+export function buildPublishKey(streamingId: string, ingestKey: string): string {
+  return hashOpaqueToken(`publish:${streamingId}:${ingestKey}`);
 }
 
 export function isValidStreamingKey(value: string): boolean {
@@ -166,6 +192,22 @@ export function listAllStreamings(db: Database): PublicStreaming[] {
   const rows = db.query(selectAllStreamingsSql).all() as StreamingRow[];
 
   return rows.map(mapRowToStreaming);
+}
+
+export function findStreamingByOpaquePath(
+  db: Database,
+  streamingAlias: string,
+  publishKey: string
+): PublicStreaming | null {
+  const streamings = listAllStreamings(db);
+
+  return (
+    streamings.find(
+      (streaming) =>
+        buildStreamingAlias(streaming.id) === streamingAlias &&
+        buildPublishKey(streaming.id, streaming.ingestKey) === publishKey
+    ) ?? null
+  );
 }
 
 export function upsertStreaming(db: Database, input: SaveStreamingInput): PublicStreaming {

@@ -3,23 +3,34 @@ import Hls from 'hls.js';
 import { useParams } from 'react-router-dom';
 
 import { runtime } from '../config/runtime';
+import { getPublicStreamingEmergencyFallback } from '../streaming/api';
+import type { CompanyEmergencyFallback } from '../streaming/types';
 
 type PlaybackState = 'connecting' | 'ready' | 'unsupported' | 'error';
 
-type EmergencyImage = {
-  id: string;
-  name: string;
-  dataUrl: string;
-};
-
-type EmergencyFallbackStorage = {
-  autoplayEnabled: boolean;
-  selectedImageId: string | null;
-  images: EmergencyImage[];
-};
-
 function buildFallbackStorageKey(streamPath: string): string {
   return `streamhub:emergency-fallback:path:${streamPath}`;
+}
+
+function readLegacyFallbackImageUrl(streamPath: string): string | null {
+  const rawValue = window.localStorage.getItem(buildFallbackStorageKey(streamPath));
+
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    const parsedValue = JSON.parse(rawValue) as CompanyEmergencyFallback;
+
+    if (!parsedValue.autoplayEnabled || !parsedValue.selectedImageId) {
+      return null;
+    }
+
+    const selectedImage = parsedValue.images.find((image) => image.id === parsedValue.selectedImageId);
+    return selectedImage?.dataUrl ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function PublicHlsPlayerPage(): JSX.Element {
@@ -30,6 +41,7 @@ export function PublicHlsPlayerPage(): JSX.Element {
   const [statusMessage, setStatusMessage] = useState('Connecting to the live HLS playlist.');
   const [fallbackImageUrl, setFallbackImageUrl] = useState<string | null>(null);
   const [hasLiveSignal, setHasLiveSignal] = useState(false);
+  const [retryVersion, setRetryVersion] = useState(0);
   const hasLiveSignalRef = useRef(false);
   const isChromeless = searchParams.get('chrome') !== '1';
   const fitMode = searchParams.get('fit') === 'cover' ? 'cover' : 'contain';
@@ -103,51 +115,62 @@ export function PublicHlsPlayerPage(): JSX.Element {
     );
   }
 
-  const streamPath = `live/${streamingAlias}/${publishKey}`;
-  const playbackUrl = `${runtime.streamingHlsUrl}/${streamPath}/index.m3u8?cookieCheck=1`;
+  const activeStreamingAlias = streamingAlias;
+  const activePublishKey = publishKey;
+  const streamPath = `live/${activeStreamingAlias}/${activePublishKey}`;
+  const playbackUrl = `${runtime.streamingHlsUrl}/${streamPath}/index.m3u8?cookieCheck=1${
+    retryVersion > 0 ? `&retry=${retryVersion}` : ''
+  }`;
 
   useEffect(() => {
-    const storageKey = buildFallbackStorageKey(streamPath);
+    if (hasLiveSignal) {
+      return;
+    }
 
-    const hydrateFallbackImage = (): void => {
-      const rawValue = localStorage.getItem(storageKey);
+    const retryTimeoutId = window.setTimeout(() => {
+      setRetryVersion((currentValue) => currentValue + 1);
+    }, 10000);
 
-      if (!rawValue) {
-        setFallbackImageUrl(null);
-        return;
-      }
+    return () => {
+      window.clearTimeout(retryTimeoutId);
+    };
+  }, [hasLiveSignal, retryVersion]);
 
+  useEffect(() => {
+    let isDisposed = false;
+
+    async function hydrateFallbackImage(): Promise<void> {
       try {
-        const parsedValue = JSON.parse(rawValue) as EmergencyFallbackStorage;
+        const publicFallback = await getPublicStreamingEmergencyFallback(
+          activeStreamingAlias,
+          activePublishKey,
+        );
 
-        if (!parsedValue.autoplayEnabled || !parsedValue.selectedImageId) {
-          setFallbackImageUrl(null);
+        if (isDisposed) {
           return;
         }
 
-        const selectedImage = parsedValue.images.find((image) => image.id === parsedValue.selectedImageId);
-        setFallbackImageUrl(selectedImage?.dataUrl ?? null);
+        if (!publicFallback.autoplayEnabled || !publicFallback.selectedImage) {
+          setFallbackImageUrl(readLegacyFallbackImageUrl(streamPath));
+          return;
+        }
+
+        setFallbackImageUrl(publicFallback.selectedImage.dataUrl);
       } catch {
-        setFallbackImageUrl(null);
+        if (!isDisposed) {
+          setFallbackImageUrl(readLegacyFallbackImageUrl(streamPath));
+        }
       }
-    };
+    }
 
-    hydrateFallbackImage();
-
-    const handleStorageChange = (event: StorageEvent): void => {
-      if (event.key !== storageKey) {
-        return;
-      }
-
-      hydrateFallbackImage();
-    };
-
-    window.addEventListener('storage', handleStorageChange);
+    if (!hasLiveSignal) {
+      void hydrateFallbackImage();
+    }
 
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
+      isDisposed = true;
     };
-  }, [streamPath]);
+  }, [activePublishKey, activeStreamingAlias, hasLiveSignal, retryVersion, streamPath]);
 
   useEffect(() => {
     if (window.parent === window) {
@@ -249,11 +272,13 @@ export function PublicHlsPlayerPage(): JSX.Element {
     };
 
     const handleVideoStalled = (): void => {
-      markWaiting('Waiting for live signal.');
+      markWaiting('Waiting for live signal. Retrying every 10 seconds.');
     };
 
     setStatus('connecting');
-    setStatusMessage('Connecting to the live HLS playlist.');
+    setStatusMessage(
+      retryVersion > 0 ? 'Rechecking the live HLS playlist.' : 'Connecting to the live HLS playlist.',
+    );
     resetVideo();
 
     video.addEventListener('playing', handlePlayableSignal);
@@ -315,14 +340,14 @@ export function PublicHlsPlayerPage(): JSX.Element {
 
       if (!data.fatal) {
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          markWaiting('Waiting for live signal.');
+          markWaiting('Waiting for live signal. Retrying every 10 seconds.');
         }
 
         return;
       }
 
       if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-        markWaiting('Waiting for live signal.');
+        markWaiting('Waiting for live signal. Retrying every 10 seconds.');
         hls?.startLoad();
         return;
       }
@@ -342,7 +367,7 @@ export function PublicHlsPlayerPage(): JSX.Element {
       hls?.destroy();
       resetVideo();
     };
-  }, [playbackUrl]);
+  }, [playbackUrl, retryVersion]);
 
   const showFallbackImage = !hasLiveSignal && Boolean(fallbackImageUrl);
 

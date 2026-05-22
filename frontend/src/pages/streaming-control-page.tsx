@@ -3,6 +3,15 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom';
 
 import { useAuth } from '../auth/auth-context';
 import { runtime } from '../config/runtime';
+import {
+  getStreamingEmergencyFallback,
+  updateStreamingEmergencyFallback,
+} from '../streaming/api';
+import {
+  MAX_EMERGENCY_IMAGES,
+  type CompanyEmergencyFallback,
+  type EmergencyImage,
+} from '../streaming/types';
 
 function getStreamingSummary(type: string, companyName: string, streamingId: string): string {
   return `${type} · ${companyName} · ${streamingId}`;
@@ -42,21 +51,95 @@ function buildStreamPath(streamingId: string, ingestKey: string): string {
   return `${buildPublishServerPath(streamingId)}/${buildPublishKey(streamingId, ingestKey)}`;
 }
 
-type EmergencyImage = {
-  id: string;
-  name: string;
-  dataUrl: string;
-};
-
-type EmergencyFallbackStorage = {
-  autoplayEnabled: boolean;
-  selectedImageId: string | null;
-  images: EmergencyImage[];
-};
-
 type CopyState = 'idle' | 'copied' | 'error';
 
-const MAX_EMERGENCY_IMAGES = 10;
+function getEmptyEmergencyFallback(): CompanyEmergencyFallback {
+  return {
+    autoplayEnabled: false,
+    selectedImageId: null,
+    images: [],
+  };
+}
+
+function buildEmergencyFallbackHelperMessage(
+  selectedImageId: string | null,
+  images: EmergencyImage[]
+): string {
+  if (!selectedImageId) {
+    return 'No image selected yet.';
+  }
+
+  return `Selected image: ${images.find((image) => image.id === selectedImageId)?.name ?? 'Unknown image'}`;
+}
+
+function parseStoredEmergencyFallback(rawValue: string | null): CompanyEmergencyFallback | null {
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    const parsedValue = JSON.parse(rawValue) as {
+      autoplayEnabled?: unknown;
+      selectedImageId?: unknown;
+      images?: unknown[];
+    };
+
+    if (!Array.isArray(parsedValue.images)) {
+      return null;
+    }
+
+    const images: EmergencyImage[] = [];
+
+    for (const image of parsedValue.images) {
+      if (typeof image !== 'object' || image === null) {
+        continue;
+      }
+
+      const record = image as Record<string, unknown>;
+      const id = typeof record.id === 'string' ? record.id.trim() : '';
+      const name = typeof record.name === 'string' ? record.name.trim() : '';
+      const dataUrl = typeof record.dataUrl === 'string' ? record.dataUrl.trim() : '';
+
+      if (!id || !name || !dataUrl.startsWith('data:image/')) {
+        continue;
+      }
+
+      images.push({ id, name, dataUrl });
+
+      if (images.length >= MAX_EMERGENCY_IMAGES) {
+        break;
+      }
+    }
+
+    const rawSelectedImageId = typeof parsedValue.selectedImageId === 'string'
+      ? parsedValue.selectedImageId.trim()
+      : null;
+    const selectedImageId =
+      rawSelectedImageId && images.some((image) => image.id === rawSelectedImageId)
+        ? rawSelectedImageId
+        : images[0]?.id ?? null;
+
+    return {
+      autoplayEnabled: Boolean(parsedValue.autoplayEnabled),
+      selectedImageId,
+      images,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readLegacyEmergencyFallback(storageKeys: string[]): CompanyEmergencyFallback | null {
+  for (const storageKey of storageKeys) {
+    const parsedValue = parseStoredEmergencyFallback(window.localStorage.getItem(storageKey));
+
+    if (parsedValue && parsedValue.images.length > 0) {
+      return parsedValue;
+    }
+  }
+
+  return null;
+}
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -202,7 +285,7 @@ function PublishSettingsCard({
 }
 
 function EmergencyFallbackCard({
-  isConnected,
+  isBusy,
   autoplayEnabled,
   images,
   selectedImageId,
@@ -212,7 +295,7 @@ function EmergencyFallbackCard({
   onSelectImage,
   onRemoveImage,
 }: {
-  isConnected: boolean;
+  isBusy: boolean;
   autoplayEnabled: boolean;
   images: EmergencyImage[];
   selectedImageId: string | null;
@@ -225,19 +308,10 @@ function EmergencyFallbackCard({
   return (
     <article className="status-card streaming-emergency-card">
       <span className="status-eyebrow">Emergency fallback</span>
-      <div className="streaming-air-head">
-        <h2>ON AIR</h2>
-        <span
-          className={`streaming-air-pill ${
-            isConnected ? 'streaming-air-pill--connected' : 'streaming-air-pill--disconnected'
-          }`}
-        >
-          {isConnected ? 'Connected' : 'Disconnected'}
-        </span>
-      </div>
+      <h2>Emergency image</h2>
       <p>
-        If OBS/vMix stops sending video, this fallback can keep a static emergency image visible in the
-        preview while the live source reconnects.
+        These emergency images are shared across the whole company. If OBS/vMix stops sending video,
+        the selected image can stay visible while the live source reconnects.
       </p>
 
       <label className="streaming-switch-row" htmlFor="emergency-autoplay-switch">
@@ -247,6 +321,7 @@ function EmergencyFallbackCard({
           className="streaming-switch"
           type="checkbox"
           checked={autoplayEnabled}
+          disabled={isBusy}
           onChange={(event) => onAutoplayChange(event.target.checked)}
         />
       </label>
@@ -256,6 +331,7 @@ function EmergencyFallbackCard({
         <input
           type="file"
           accept="image/*"
+          disabled={isBusy}
           onChange={(event) => {
             const [file] = Array.from(event.target.files ?? []);
             onImageSelect(file ?? null);
@@ -267,7 +343,7 @@ function EmergencyFallbackCard({
       <p className="field-hint">{helperMessage}</p>
 
       <div className="streaming-fallback-gallery-head">
-        <span>Saved images</span>
+        <span>Saved company images</span>
         <span>{images.length}/{MAX_EMERGENCY_IMAGES}</span>
       </div>
 
@@ -284,6 +360,7 @@ function EmergencyFallbackCard({
               <button
                 type="button"
                 className="streaming-fallback-select"
+                disabled={isBusy}
                 onClick={() => onSelectImage(image.id)}
                 aria-pressed={isSelected}
               >
@@ -295,6 +372,7 @@ function EmergencyFallbackCard({
                 <button
                   type="button"
                   className="secondary-button streaming-inline-button"
+                  disabled={isBusy}
                   onClick={() => onRemoveImage(image.id)}
                   aria-label={`Remove ${image.name}`}
                 >
@@ -385,6 +463,16 @@ function HlsPlayer({
         This preview uses the same public embed player that already works outside the dashboard. Reload only
         refreshes the preview iframe.
       </p>
+      <div className="streaming-air-head" aria-live="polite">
+        <span className="streaming-player-overlay-label">ON AIR</span>
+        <span
+          className={`streaming-air-pill ${
+            hasLiveSignal ? 'streaming-air-pill--connected' : 'streaming-air-pill--disconnected'
+          }`}
+        >
+          {hasLiveSignal ? 'Connected' : 'Disconnected'}
+        </span>
+      </div>
       <div className={`streaming-player-shell streaming-player-shell--${hasLiveSignal ? 'ready' : 'connecting'}`}>
         <iframe
           ref={iframeRef}
@@ -397,7 +485,9 @@ function HlsPlayer({
         />
       </div>
       <p className="streaming-player-status">
-        {hasLiveSignal ? 'Live signal connected in the public player.' : 'Waiting for the public player signal.'}
+        {hasLiveSignal
+          ? 'Live signal connected in the public player.'
+          : 'Waiting for the public player signal. Auto retry every 10 seconds.'}
       </p>
     </article>
   );
@@ -411,8 +501,8 @@ export function StreamingControlPage(): JSX.Element {
   const [autoplayFallbackEnabled, setAutoplayFallbackEnabled] = useState(false);
   const [fallbackImages, setFallbackImages] = useState<EmergencyImage[]>([]);
   const [selectedFallbackImageId, setSelectedFallbackImageId] = useState<string | null>(null);
-  const [fallbackHelperMessage, setFallbackHelperMessage] = useState('No image selected yet.');
-  const [hasHydratedFallback, setHasHydratedFallback] = useState(false);
+  const [fallbackHelperMessage, setFallbackHelperMessage] = useState('Loading company images...');
+  const [isFallbackBusy, setIsFallbackBusy] = useState(true);
 
   if (!session || !streamingId) {
     return <Navigate to="/" replace />;
@@ -424,68 +514,137 @@ export function StreamingControlPage(): JSX.Element {
     return <Navigate to="/" replace />;
   }
 
-  const streamPath = buildStreamPath(streaming.id, streaming.ingestKey);
-  const publishKey = buildPublishKey(streaming.id, streaming.ingestKey);
-  const rtmpServerUrl = `${runtime.streamingIngestUrl}/${buildPublishServerPath(streaming.id)}`;
+  const activeSession = session;
+  const activeStreaming = streaming;
+  const streamPath = buildStreamPath(activeStreaming.id, activeStreaming.ingestKey);
+  const publishKey = buildPublishKey(activeStreaming.id, activeStreaming.ingestKey);
+  const rtmpServerUrl = `${runtime.streamingIngestUrl}/${buildPublishServerPath(activeStreaming.id)}`;
   const rtmpIngestUrl = `${rtmpServerUrl}/${publishKey}`;
   const hlsPlaybackUrl = `${runtime.streamingHlsUrl}/${streamPath}/index.m3u8`;
   const webRtcUrl = `${runtime.streamingWebrtcUrl}/${streamPath}`;
   const publicEmbedUrl = `${window.location.origin}/embed/hls/${streamPath}`;
   const fallbackStorageKey = `streamhub:emergency-fallback:path:${streamPath}`;
-  const legacyFallbackStorageKey = `streamhub:emergency-fallback:${streaming.id}`;
+  const legacyFallbackStorageKey = `streamhub:emergency-fallback:${activeStreaming.id}`;
+
+  function applyFallbackState(nextFallback: CompanyEmergencyFallback): void {
+    setAutoplayFallbackEnabled(nextFallback.autoplayEnabled);
+    setFallbackImages(nextFallback.images);
+    setSelectedFallbackImageId(nextFallback.selectedImageId);
+    setFallbackHelperMessage(
+      buildEmergencyFallbackHelperMessage(nextFallback.selectedImageId, nextFallback.images),
+    );
+  }
 
   useEffect(() => {
-    setHasHydratedFallback(false);
+    let isDisposed = false;
 
-    const rawValue = localStorage.getItem(fallbackStorageKey) ?? localStorage.getItem(legacyFallbackStorageKey);
+    async function hydrateFallback(): Promise<void> {
+      setIsFallbackBusy(true);
 
-    if (!rawValue) {
-      setAutoplayFallbackEnabled(false);
-      setFallbackImages([]);
-      setSelectedFallbackImageId(null);
-      setFallbackHelperMessage('No image selected yet.');
-      setHasHydratedFallback(true);
-      return;
+      try {
+        const companyFallback = await getStreamingEmergencyFallback(activeSession.token, activeStreaming.id);
+
+        if (isDisposed) {
+          return;
+        }
+
+        if (companyFallback.images.length === 0) {
+          const legacyFallback = readLegacyEmergencyFallback([
+            fallbackStorageKey,
+            legacyFallbackStorageKey,
+          ]);
+
+          if (legacyFallback) {
+            try {
+              const migratedFallback = await updateStreamingEmergencyFallback(
+                activeSession.token,
+                activeStreaming.id,
+                legacyFallback,
+              );
+
+              if (isDisposed) {
+                return;
+              }
+
+              applyFallbackState(migratedFallback);
+              window.localStorage.removeItem(fallbackStorageKey);
+              window.localStorage.removeItem(legacyFallbackStorageKey);
+              return;
+            } catch (error) {
+              if (isDisposed) {
+                return;
+              }
+
+              applyFallbackState(companyFallback);
+              setFallbackHelperMessage(
+                error instanceof Error
+                  ? `Could not migrate previous images: ${error.message}`
+                  : 'Could not migrate previous images.',
+              );
+              return;
+            }
+          }
+        }
+
+        applyFallbackState(companyFallback);
+      } catch (error) {
+        if (isDisposed) {
+          return;
+        }
+
+        const emptyFallback = getEmptyEmergencyFallback();
+        applyFallbackState(emptyFallback);
+        setFallbackHelperMessage(
+          error instanceof Error ? error.message : 'Could not load company emergency images.',
+        );
+      } finally {
+        if (!isDisposed) {
+          setIsFallbackBusy(false);
+        }
+      }
     }
+
+    void hydrateFallback();
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [activeSession.token, activeStreaming.id, fallbackStorageKey, legacyFallbackStorageKey]);
+
+  async function persistEmergencyFallback(nextFallback: CompanyEmergencyFallback): Promise<void> {
+    setIsFallbackBusy(true);
+    setFallbackHelperMessage('Saving company images...');
 
     try {
-      const parsedValue = JSON.parse(rawValue) as EmergencyFallbackStorage;
-      const safeImages = Array.isArray(parsedValue.images) ? parsedValue.images.slice(0, MAX_EMERGENCY_IMAGES) : [];
-      const safeSelectedId = safeImages.some((image) => image.id === parsedValue.selectedImageId)
-        ? parsedValue.selectedImageId
-        : safeImages[0]?.id ?? null;
-
-      setAutoplayFallbackEnabled(Boolean(parsedValue.autoplayEnabled));
-      setFallbackImages(safeImages);
-      setSelectedFallbackImageId(safeSelectedId);
-      setFallbackHelperMessage(
-        safeSelectedId
-          ? `Selected image: ${safeImages.find((image) => image.id === safeSelectedId)?.name ?? 'Unknown image'}`
-          : 'No image selected yet.',
+      const savedFallback = await updateStreamingEmergencyFallback(
+        activeSession.token,
+        activeStreaming.id,
+        nextFallback,
       );
-    } catch {
-      setAutoplayFallbackEnabled(false);
-      setFallbackImages([]);
-      setSelectedFallbackImageId(null);
-      setFallbackHelperMessage('No image selected yet.');
+
+      applyFallbackState(savedFallback);
+      window.localStorage.removeItem(fallbackStorageKey);
+      window.localStorage.removeItem(legacyFallbackStorageKey);
+    } catch (error) {
+      setFallbackHelperMessage(
+        error instanceof Error ? error.message : 'Could not save company emergency images.',
+      );
+    } finally {
+      setIsFallbackBusy(false);
     }
+  }
 
-    setHasHydratedFallback(true);
-  }, [fallbackStorageKey, legacyFallbackStorageKey]);
-
-  useEffect(() => {
-    if (!hasHydratedFallback) {
+  function handleAutoplayFallbackChange(nextValue: boolean): void {
+    if (nextValue === autoplayFallbackEnabled) {
       return;
     }
 
-    const payload: EmergencyFallbackStorage = {
-      autoplayEnabled: autoplayFallbackEnabled,
+    void persistEmergencyFallback({
+      autoplayEnabled: nextValue,
       selectedImageId: selectedFallbackImageId,
       images: fallbackImages,
-    };
-
-    localStorage.setItem(fallbackStorageKey, JSON.stringify(payload));
-  }, [autoplayFallbackEnabled, fallbackImages, fallbackStorageKey, hasHydratedFallback, selectedFallbackImageId]);
+    });
+  }
 
   async function handleEmergencyImageSelection(file: File | null): Promise<void> {
     if (!file) {
@@ -510,40 +669,41 @@ export function StreamingControlPage(): JSX.Element {
         dataUrl,
       };
 
-      setFallbackImages((previous) => [...previous, newImage]);
-      setSelectedFallbackImageId(newImage.id);
-      setFallbackHelperMessage(`Selected image: ${newImage.name}`);
+      await persistEmergencyFallback({
+        autoplayEnabled: autoplayFallbackEnabled,
+        selectedImageId: newImage.id,
+        images: [...fallbackImages, newImage],
+      });
     } catch {
       setFallbackHelperMessage('Could not load this image. Try another file.');
     }
   }
 
   function handleSelectFallbackImage(imageId: string): void {
-    const selectedImage = fallbackImages.find((image) => image.id === imageId);
-    setSelectedFallbackImageId(imageId);
-    setFallbackHelperMessage(
-      selectedImage ? `Selected image: ${selectedImage.name}` : 'No image selected yet.',
-    );
+    if (imageId === selectedFallbackImageId) {
+      return;
+    }
+
+    void persistEmergencyFallback({
+      autoplayEnabled: autoplayFallbackEnabled,
+      selectedImageId: imageId,
+      images: fallbackImages,
+    });
   }
 
   function handleRemoveFallbackImage(imageId: string): void {
-    setFallbackImages((previous) => {
-      const nextImages = previous.filter((image) => image.id !== imageId);
+    const nextImages = fallbackImages.filter((image) => image.id !== imageId);
 
-      let nextSelectedId = selectedFallbackImageId;
+    let nextSelectedId = selectedFallbackImageId;
 
-      if (nextSelectedId === imageId || !nextImages.some((image) => image.id === nextSelectedId)) {
-        nextSelectedId = nextImages[0]?.id ?? null;
-      }
+    if (nextSelectedId === imageId || !nextImages.some((image) => image.id === nextSelectedId)) {
+      nextSelectedId = nextImages[0]?.id ?? null;
+    }
 
-      const nextSelectedImage = nextImages.find((image) => image.id === nextSelectedId);
-
-      setSelectedFallbackImageId(nextSelectedId);
-      setFallbackHelperMessage(
-        nextSelectedImage ? `Selected image: ${nextSelectedImage.name}` : 'No image selected yet.',
-      );
-
-      return nextImages;
+    void persistEmergencyFallback({
+      autoplayEnabled: autoplayFallbackEnabled,
+      selectedImageId: nextSelectedId,
+      images: nextImages,
     });
   }
 
@@ -553,8 +713,8 @@ export function StreamingControlPage(): JSX.Element {
         <header className="dashboard-topbar">
           <div>
             <span className="status-eyebrow">Streaming control</span>
-            <h1>{streaming.name}</h1>
-            <p>{getStreamingSummary(streaming.type, session.company.name, streaming.id)}</p>
+            <h1>{activeStreaming.name}</h1>
+            <p>{getStreamingSummary(activeStreaming.type, activeSession.company.name, activeStreaming.id)}</p>
           </div>
 
           <button className="ghost-button" type="button" onClick={() => void navigate('/')}>
@@ -591,12 +751,12 @@ export function StreamingControlPage(): JSX.Element {
             <HlsPlayer embedUrl={publicEmbedUrl} onSignalChange={setHasLiveSignal} />
 
             <EmergencyFallbackCard
-              isConnected={hasLiveSignal}
+              isBusy={isFallbackBusy}
               autoplayEnabled={autoplayFallbackEnabled}
               images={fallbackImages}
               selectedImageId={selectedFallbackImageId}
               helperMessage={fallbackHelperMessage}
-              onAutoplayChange={setAutoplayFallbackEnabled}
+              onAutoplayChange={handleAutoplayFallbackChange}
               onImageSelect={(file) => {
                 void handleEmergencyImageSelection(file);
               }}
