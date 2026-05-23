@@ -1,6 +1,9 @@
 # Streaming Architecture
 
-This document starts the video streaming layer implementation around a simple rule: the transmitter PC does the expensive work, and the server only relays, packages, and serves.
+This document covers the video streaming layer only.
+Audio is being split into its own stack under `infra/audio/` so the video path can stay stable while audio evolves independently.
+
+The video implementation follows a simple rule: the transmitter PC does the expensive work, and the server only relays, packages, and serves.
 
 ## Core decision
 
@@ -11,6 +14,7 @@ This document starts the video streaming layer implementation around a simple ru
 - WebRTC is optional for low-latency browser playback.
 - FFmpeg stays optional and should run on the transmitter PC or a separate worker only when recording or remuxing is needed.
 - The live server must not transcode by default.
+- Audio is not part of this stack and must not share these MediaMTX routes.
 
 ## 1. Streaming architecture
 

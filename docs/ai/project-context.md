@@ -4,6 +4,7 @@ This file is the single source of truth for Copilot and Claude Code.
 
 ## Project
 Build a streaming platform for audio and video with a focus on low latency, strong typing, and mobile-first UX.
+Audio and video live delivery must stay isolated by stack so one media flow does not break the other.
 
 ## Non-negotiable defaults
 - Use TypeScript and strict types whenever possible.
@@ -13,6 +14,7 @@ Build a streaming platform for audio and video with a focus on low latency, stro
 - Favor accessibility, performance, and observability.
 
 ## Streaming rules
+- Live video and live audio must stay on separate infrastructure stacks, compose files, ports, and public URL prefixes.
 - Prefer WebRTC for live interactive flows that need low latency.
 - Prefer HLS or LL-HLS for broadcast or VOD style delivery when latency can be higher.
 - Keep ingest, transcoding, delivery, auth, and playback concerns separated.
@@ -20,6 +22,10 @@ Build a streaming platform for audio and video with a focus on low latency, stro
 - Baseline live video uses H.264 plus AAC from the transmitter PC.
 - MediaMTX is the core streaming server for RTMP ingest, HLS playback, and optional WebRTC.
 - The live server must not transcode by default; encoding stays on the transmitter PC.
+- `infra/streaming/` remains the isolated video stack backed by MediaMTX.
+- `infra/audio/` is the isolated audio stack and must not reuse the video ingest or playback routes.
+- Audio stage 1 only reserves the isolated stack, gateway, folders, and deploy path; the audio delivery chain is wired in later stages.
+- Planned audio baseline is Icecast plus Liquidsoap, with AAC over HLS as the default playback path and MP3 as the compatibility fallback.
 - Stream paths are short opaque aliases: `live/<streamingAlias>/<publishKey>`.
 - Nginx fronts HLS and the WebRTC HTTP handshake; RTMP ingest stays direct to MediaMTX.
 - The streaming control page renders a real HLS player and falls back to hls.js when the browser lacks native HLS support.
@@ -32,6 +38,7 @@ Build a streaming platform for audio and video with a focus on low latency, stro
 - frontend/ contains the React + Vite client and its Tailwind CSS styling layer.
 - backend/ contains the Bun + Elysia API and the backend-local database config.
 - database/ contains shared schema, seed material, and SQLite artifacts.
+- infra/audio/ contains the isolated audio compose stack and its future Auto DJ assets.
 - .env.main lives at the repository root and is the single environment contract for both apps.
 - The backend database config stays inside backend/ and only points to assets stored in database/.
 
@@ -55,6 +62,8 @@ Build a streaming platform for audio and video with a focus on low latency, stro
 - VITE_API_URL is the frontend build-time API base URL (default: http://localhost:3012).
 - STREAMING_INGEST_URL is the public RTMP base URL used with a separate stream key.
 - STREAMING_HLS_URL and STREAMING_WEBRTC_URL define the browser playback endpoints used by the control page.
+- AUDIO_HTTP_PORT defines the isolated audio gateway listener used by the audio compose stack (default: 8090).
+- AUDIO_PUBLIC_URL defines the public base URL reserved for future audio playback and status endpoints (default: http://localhost:8090).
 
 ## Frontend styling contract
 - The frontend styling system is Tailwind CSS on top of Vite.
@@ -70,7 +79,7 @@ Build a streaming platform for audio and video with a focus on low latency, stro
 
 ## Local deployment
 - frontend/ and backend/ each own a Dockerfile and a docker-compose.yml file.
-- The root package.json exposes a localdeploy script that starts the backend, frontend, and streaming compose stacks.
+- The root package.json exposes a localdeploy script that starts the backend, frontend, video streaming, and audio compose stacks.
 - The compose files mount the workspace root so both apps can read the shared .env.main and database/ assets.
 - The compose services install workspace dependencies on startup so mounted node_modules volumes stay in sync with package changes.
 

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Streamhub audio stack</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 48px 24px;
+    }
+
+    h1 {
+      margin-bottom: 16px;
+    }
+
+    p,
+    li {
+      line-height: 1.6;
+    }
+
+    code {
+      background: rgba(148, 163, 184, 0.18);
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>Audio stack stage 1</h1>
+    <p>Este stack existe separado del video para que el flujo de audio crezca sin tocar MediaMTX ni sus rutas.</p>
+    <p>En esta etapa solo esta activo el gateway aislado.</p>
+    <ul>
+      <li>Healthcheck: <code>/healthz</code></li>
+      <li>Future HLS base: <code>/hls/</code></li>
+    </ul>
+  </main>
+</body>
+
+</html>

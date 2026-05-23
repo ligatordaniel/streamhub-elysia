@@ -1,6 +1,7 @@
-# Streaming Stack
+# Video Streaming Stack
 
 This folder starts the video streaming layer around MediaMTX and Nginx.
+Audio lives in a separate stack under `infra/audio/`.
 
 ## Goals
 

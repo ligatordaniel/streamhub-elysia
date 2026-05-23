@@ -12,3 +12,6 @@ docker compose up -d --build
 
 cd "$ROOT_DIR/infra/streaming"
 docker compose up -d --force-recreate
+
+cd "$ROOT_DIR/infra/audio"
+docker compose up -d --force-recreate

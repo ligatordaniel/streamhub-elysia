@@ -1,0 +1,15 @@
+services:
+  audio-gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - '${AUDIO_HTTP_PORT:-8090}:8090'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./www:/usr/share/nginx/html:ro
+    restart: unless-stopped
+    networks:
+      - audio
+
+networks:
+  audio:
+    driver: bridge
