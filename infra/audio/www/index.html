@@ -14,9 +14,9 @@
     }
 
     main {
-      max-width: 720px;
+      max-width: 780px;
       margin: 0 auto;
-      padding: 48px 24px;
+      padding: 48px 20px 64px;
     }
 
     h1 {
@@ -38,13 +38,23 @@
 
 <body>
   <main>
-    <h1>Audio stack stage 1</h1>
-    <p>Este stack existe separado del video para que el flujo de audio crezca sin tocar MediaMTX ni sus rutas.</p>
-    <p>En esta etapa solo esta activo el gateway aislado.</p>
+    <h1>Audio stack stage 6</h1>
+    <p>Este stack sigue separado del video para que el flujo de audio crezca sin tocar MediaMTX ni sus rutas.</p>
+    <p>
+      En esta etapa cada streaming de audio ya tiene su propio input live, sus propios mounts en Icecast y su propia
+      salida HLS interna, manteniendo las rutas opacas publicas.
+    </p>
     <ul>
       <li>Healthcheck: <code>/healthz</code></li>
-      <li>Future HLS base: <code>/hls/</code></li>
+      <li>Status: <code>/status</code></li>
+      <li>HLS per stream: <code>/hls/&lt;streamingAlias&gt;/&lt;publishKey&gt;/live.m3u8</code></li>
+      <li>MP3 per stream: <code>/listen/&lt;streamingAlias&gt;/&lt;publishKey&gt;/radio.mp3</code></li>
+      <li>AAC per stream: <code>/listen/&lt;streamingAlias&gt;/&lt;publishKey&gt;/radio.aac</code></li>
+      <li>Live publish per stream: <code>/mount/&lt;publishMountToken&gt;</code></li>
     </ul>
+    <p>
+      No hay Auto DJ ni subida de musica por ahora. Si no hay BUTT transmitiendo, la stack queda en silencio.
+    </p>
   </main>
 </body>
 

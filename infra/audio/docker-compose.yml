@@ -1,9 +1,70 @@
 services:
+  icecast:
+    build:
+      context: ./icecast
+    expose:
+      - '8000'
+    environment:
+      AUDIO_ICECAST_SOURCE_PASSWORD: '${AUDIO_ICECAST_SOURCE_PASSWORD:-streamhub-source}'
+      AUDIO_ICECAST_ADMIN_PASSWORD: '${AUDIO_ICECAST_ADMIN_PASSWORD:-streamhub-admin}'
+      AUDIO_ICECAST_RELAY_PASSWORD: '${AUDIO_ICECAST_RELAY_PASSWORD:-streamhub-relay}'
+      AUDIO_ICECAST_HOSTNAME: '${AUDIO_ICECAST_HOSTNAME:-localhost}'
+    restart: unless-stopped
+    networks:
+      - audio
+
+  liquidsoap:
+    build:
+      context: .
+      dockerfile: ./liquidsoap/Dockerfile
+    depends_on:
+      - icecast
+    ports:
+      - '${AUDIO_LIVE_SOURCE_PORT:-8010}:${AUDIO_LIVE_SOURCE_PORT:-8010}'
+    environment:
+      AUDIO_DATABASE_PATH: /srv/database/data/streamhub.sqlite3
+      AUDIO_ICECAST_HOST: icecast
+      AUDIO_ICECAST_PORT: '8000'
+      AUDIO_ICECAST_SOURCE_PASSWORD: '${AUDIO_ICECAST_SOURCE_PASSWORD:-streamhub-source}'
+      AUDIO_PUBLIC_URL: '${AUDIO_PUBLIC_URL:-http://localhost:8090}'
+      AUDIO_STATION_NAME: '${AUDIO_STATION_NAME:-Streamhub Live}'
+      AUDIO_LIVE_SOURCE_PORT: '${AUDIO_LIVE_SOURCE_PORT:-8010}'
+      AUDIO_LIVE_SOURCE_PASSWORD: '${AUDIO_LIVE_SOURCE_PASSWORD:-Q7mLp2Xv9RtK}'
+    volumes:
+      - ./library:/srv/audio/library
+      - ./playlists:/srv/audio/playlists
+      - ./state:/srv/audio/state
+      - ../../database:/srv/database:ro
+    restart: unless-stopped
+    networks:
+      - audio
+
+  audio-hls:
+    build:
+      context: .
+      dockerfile: ./ffmpeg/Dockerfile
+    depends_on:
+      - icecast
+      - liquidsoap
+    environment:
+      AUDIO_DATABASE_PATH: /srv/database/data/streamhub.sqlite3
+    volumes:
+      - ./hls:/srv/audio/hls
+      - ../../database:/srv/database:ro
+    restart: unless-stopped
+    networks:
+      - audio
+
   audio-gateway:
     image: nginx:1.27-alpine
+    depends_on:
+      - audio-hls
+      - icecast
+      - liquidsoap
     ports:
       - '${AUDIO_HTTP_PORT:-8090}:8090'
     volumes:
+      - ./hls:/usr/share/nginx/audio-hls:ro
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./www:/usr/share/nginx/html:ro
     restart: unless-stopped

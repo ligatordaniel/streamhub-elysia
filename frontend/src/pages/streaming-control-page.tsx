@@ -3,6 +3,7 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom';
 
 import { useAuth } from '../auth/auth-context';
 import { runtime } from '../config/runtime';
+import { AudioStreamingControlPage } from './audio-streaming-control-page';
 import {
   getStreamingEmergencyFallback,
   updateStreamingEmergencyFallback,
@@ -516,6 +517,21 @@ export function StreamingControlPage(): JSX.Element {
 
   const activeSession = session;
   const activeStreaming = streaming;
+
+  if (activeStreaming.type === 'audio') {
+    return (
+      <AudioStreamingControlPage
+        companyName={activeSession.company.name}
+        ingestKey={activeStreaming.ingestKey}
+        streamingId={activeStreaming.id}
+        streamingName={activeStreaming.name}
+        onBack={() => {
+          void navigate('/');
+        }}
+      />
+    );
+  }
+
   const streamPath = buildStreamPath(activeStreaming.id, activeStreaming.ingestKey);
   const publishKey = buildPublishKey(activeStreaming.id, activeStreaming.ingestKey);
   const rtmpServerUrl = `${runtime.streamingIngestUrl}/${buildPublishServerPath(activeStreaming.id)}`;

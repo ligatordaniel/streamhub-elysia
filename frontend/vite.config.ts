@@ -52,6 +52,11 @@ export default defineConfig({
   define: {
     __STREAMHUB_APP_NAME__: JSON.stringify(env.APP_NAME ?? 'StreamHub'),
     __STREAMHUB_API_URL__: JSON.stringify(env.VITE_API_URL ?? 'http://localhost:3012'),
+    __STREAMHUB_AUDIO_LIVE_SOURCE_PASSWORD__: JSON.stringify(
+      env.AUDIO_LIVE_SOURCE_PASSWORD ?? 'Q7mLp2Xv9RtK'
+    ),
+    __STREAMHUB_AUDIO_LIVE_SOURCE_PORT__: JSON.stringify(env.AUDIO_LIVE_SOURCE_PORT ?? '8010'),
+    __STREAMHUB_AUDIO_PUBLIC_URL__: JSON.stringify(env.AUDIO_PUBLIC_URL ?? 'http://localhost:8090'),
     __STREAMHUB_STREAMING_INGEST_URL__: JSON.stringify(
       env.STREAMING_INGEST_URL ?? 'rtmp://localhost:1935'
     ),

@@ -1,0 +1,38 @@
+set("init.allow_root", true)
+set("log.stdout", true)
+set("server.telnet", false)
+
+live_source = input.harbor(
+  "${AUDIO_LIVE_SOURCE_MOUNT}",
+  port=${AUDIO_LIVE_SOURCE_PORT},
+  timeout=600.,
+  password="${AUDIO_LIVE_SOURCE_PASSWORD}"
+)
+
+output.icecast(
+  %ffmpeg(format="mp3", %audio(codec="libmp3lame", b="192k")),
+  fallible=true,
+  host="${AUDIO_ICECAST_HOST}",
+  port=${AUDIO_ICECAST_PORT},
+  password="${AUDIO_ICECAST_SOURCE_PASSWORD}",
+  mount="/radio.mp3",
+  name="${AUDIO_STATION_NAME} MP3",
+  description="Streamhub live audio",
+  genre="Mixed",
+  url="${AUDIO_PUBLIC_URL}",
+  live_source
+)
+
+output.icecast(
+  %ffmpeg(format="adts", %audio(codec="aac", b="128k")),
+  fallible=true,
+  host="${AUDIO_ICECAST_HOST}",
+  port=${AUDIO_ICECAST_PORT},
+  password="${AUDIO_ICECAST_SOURCE_PASSWORD}",
+  mount="/radio.aac",
+  name="${AUDIO_STATION_NAME} AAC",
+  description="Streamhub live audio",
+  genre="Mixed",
+  url="${AUDIO_PUBLIC_URL}",
+  live_source
+)
