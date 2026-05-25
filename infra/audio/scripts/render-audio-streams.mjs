@@ -102,8 +102,7 @@ function loadAudioStreams() {
       streamingAlias,
       publishKey,
       publishMountToken,
-      publishMountPath: `/mount/${publishMountToken}`,
-      harborMount: `mount-${publishMountToken}`,
+      liveMount: `/live/${publishMountToken}`,
       mp3Mount: `/streams/${streamingAlias}/${publishKey}/radio.mp3`,
       aacMount: `/streams/${streamingAlias}/${publishKey}/radio.aac`,
       hlsPath: `${streamingAlias}/${publishKey}`,
@@ -126,17 +125,31 @@ function renderLiquidsoap(streams) {
   streams.forEach((stream, index) => {
     const suffix = `${index + 1}`;
     const streamLabel = escapeLiquidsoap(stream.name);
-    const escapedHarborMount = escapeLiquidsoap(stream.harborMount);
     const escapedStationName = escapeLiquidsoap(stationName);
     const escapedPublicUrl = escapeLiquidsoap(publicUrl);
     const escapedIcecastHost = escapeLiquidsoap(icecastHost);
     const escapedIcecastPassword = escapeLiquidsoap(icecastPassword);
+    const escapedLiveMount = escapeLiquidsoap(stream.liveMount);
     const escapedMp3Mount = escapeLiquidsoap(stream.mp3Mount);
     const escapedAacMount = escapeLiquidsoap(stream.aacMount);
 
     lines.push(`live_source_${suffix} = input.http(`);
-    lines.push(`  "http://${escapedIcecastHost}:${icecastPort}${escapedMp3Mount}",`);
+    lines.push(`  "http://${escapedIcecastHost}:${icecastPort}${escapedLiveMount}",`);
     lines.push('  max_buffer=30.');
+    lines.push(')');
+    lines.push('');
+    lines.push('output.icecast(');
+    lines.push('  %mp3(bitrate=192, samplerate=44100, stereo=true),');
+    lines.push('  fallible=true,');
+    lines.push(`  host="${escapedIcecastHost}",`);
+    lines.push(`  port=${icecastPort},`);
+    lines.push(`  password="${escapedIcecastPassword}",`);
+    lines.push(`  mount="${escapedMp3Mount}",`);
+    lines.push(`  name="${escapedStationName} - ${streamLabel} MP3",`);
+    lines.push('  description="Streamhub live audio",');
+    lines.push('  genre="Mixed",');
+    lines.push(`  url="${escapedPublicUrl}",`);
+    lines.push(`  live_source_${suffix}`);
     lines.push(')');
     lines.push('');
     lines.push('output.icecast(');
@@ -164,7 +177,7 @@ function renderList(streams) {
   }
 
   return `${streams
-    .map((stream) => [stream.streamingAlias, stream.publishKey, stream.harborMount, stream.mp3Mount, stream.aacMount].join('\t'))
+    .map((stream) => [stream.streamingAlias, stream.publishKey, stream.liveMount, stream.mp3Mount, stream.aacMount].join('\t'))
     .join('\n')}\n`;
 }
 

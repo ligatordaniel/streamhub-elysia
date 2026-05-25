@@ -743,6 +743,40 @@ button:disabled {
   color: inherit;
 }
 
+.streaming-live-controls {
+  @apply flex items-center gap-3;
+  padding: 0.75rem 0;
+}
+
+.streaming-play-button {
+  @apply inline-flex items-center gap-2;
+  padding: 0.5rem 1.1rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.streaming-play-button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.streaming-live-badge {
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  background: #ef4444;
+  color: #fff;
+  animation: source-pulse 1.8s ease-in-out infinite;
+}
+
 .streaming-player-shell {
   @apply overflow-hidden rounded-[24px] border;
   position: relative;

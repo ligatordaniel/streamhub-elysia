@@ -260,7 +260,7 @@ function AudioPreviewCard({
     };
 
     const handleReady = (): void => {
-      if (disposed) {
+      if (disposed || fallbackActivated) {
         return;
       }
 
@@ -293,7 +293,6 @@ function AudioPreviewCard({
 
     audio.addEventListener('canplay', handleReady);
     audio.addEventListener('loadedmetadata', handleReady);
-    audio.addEventListener('error', handleError);
 
     fallbackTimeoutId = window.setTimeout(() => {
       if (disposed || fallbackActivated) {
@@ -304,6 +303,7 @@ function AudioPreviewCard({
     }, 8000);
 
     if (audio.canPlayType('application/vnd.apple.mpegurl')) {
+      audio.addEventListener('error', handleError);
       audio.src = playbackHlsUrl;
       audio.load();
 
@@ -323,7 +323,6 @@ function AudioPreviewCard({
         disposed = true;
         audio.removeEventListener('canplay', handleReady);
         audio.removeEventListener('loadedmetadata', handleReady);
-        audio.removeEventListener('error', handleError);
         resetAudio();
       };
     }
@@ -331,6 +330,7 @@ function AudioPreviewCard({
     hls = new Hls({
       lowLatencyMode: true,
       backBufferLength: 30,
+      liveDurationInfinity: true,
     });
 
     hls.attachMedia(audio);
@@ -352,7 +352,6 @@ function AudioPreviewCard({
       disposed = true;
       audio.removeEventListener('canplay', handleReady);
       audio.removeEventListener('loadedmetadata', handleReady);
-      audio.removeEventListener('error', handleError);
       hls?.destroy();
       resetAudio();
     };
@@ -389,7 +388,6 @@ function AudioPreviewCard({
       </p>
       <audio ref={audioRef} className="w-full" controls preload="none" />
       <p className="field-hint">{statusMessage}</p>
-      {status === 'fallback' ? <CopyableValue label="Preview fallback URL" value={playbackMp3Url} /> : null}
     </article>
   );
 }
@@ -417,7 +415,7 @@ export function AudioStreamingControlPage({
   const hlsUrl = `${audioBaseUrl}/hls/${routeBase}/live.m3u8`;
   const aacUrl = `${audioBaseUrl}/listen/${routeBase}/radio.aac`;
   const mp3Url = `${audioBaseUrl}/listen/${routeBase}/radio.mp3`;
-  const icecastMount = `/streams/${routeBase}/radio.mp3`;
+  const icecastMount = `/live/${publishMountToken}`;
   const livePublishHost = getAudioLiveHost();
   const livePublishPort = runtime.audioLiveSourcePort;
   const livePublishMount = icecastMount;

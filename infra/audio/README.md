@@ -32,15 +32,13 @@ Optional environment values:
 
 ## Services
 
-- `Icecast` for source mounts and client delivery.
-- `Liquidsoap` for live-only routing from the live source.
-- `Liquidsoap harbor` for one optional Icecast-compatible live source input per audio streaming.
-- Stage 6 currently runs on Liquidsoap 2.1.x with `input.harbor` and `icy=true` for source compatibility.
+- `Icecast` for source mounts and client delivery; the source port (`AUDIO_LIVE_SOURCE_PORT`) is exposed directly on the host so live encoders connect without going through nginx.
+- `Liquidsoap` for live-only routing; reads each MP3 source mount from Icecast via `input.http` and transcodes to AAC for the HLS pipeline.
 - `FFmpeg` for one lightweight AAC-to-HLS worker per audio streaming.
 - `HLS` at `/hls/<streamingAlias>/<publishKey>/live.m3u8` as the default browser and mobile playback path.
 - `MP3` at `/listen/<streamingAlias>/<publishKey>/radio.mp3` as the compatibility fallback.
 - `AAC` at `/listen/<streamingAlias>/<publishKey>/radio.aac` as the lighter modern direct stream.
-- Opaque per-stream gateway routes that now map each audio streaming to its own inner chain.
+- Opaque per-stream gateway routes that map each audio streaming to its own inner chain.
 
 ## Folder layout
 
@@ -61,23 +59,20 @@ Optional environment values:
 - `GET /hls/<streamingAlias>/<publishKey>/live.m3u8` serves the per-stream HLS playlist path.
 - `GET /listen/<streamingAlias>/<publishKey>/radio.mp3` proxies the per-stream MP3 listener path.
 - `GET /listen/<streamingAlias>/<publishKey>/radio.aac` proxies the per-stream AAC listener path.
-- `GET /hls/live.m3u8`, `GET /listen/radio.mp3`, and `GET /listen/radio.aac` now return `410` so clients move to the per-stream contract.
+- `GET /hls/live.m3u8`, `GET /listen/radio.mp3`, `GET /listen/radio.aac`, and `GET /mount/<token>` return `410`.
 
 ## Live publish input
 
-- Any IceCast-compatible source client should publish in `IceCast` mode to the same server host and port used by `AUDIO_PUBLIC_URL`.
-- The stage-6 publish mount is `/mount/<publishMountToken>`.
+- Any Icecast-compatible source client must connect **directly** to the Icecast port (`AUDIO_LIVE_SOURCE_PORT`, default 8010), not to the nginx gateway port.
+- The publish mount is `/live/<publishMountToken>`, derived from the streaming id and ingest key. The `publishMountToken` is shown on the audio control page.
 - Username stays `source`.
-- Password comes from `AUDIO_LIVE_SOURCE_PASSWORD`.
-- `publishMountToken` is derived from the streaming id and ingest key.
-- The inner harbor mount is generated from that short publish token.
-- Live source connections now stay open longer before timing out, so brief silence or pauses do not disconnect the live input as quickly.
-- Recommended first profile: `MP3`, `192 kbps`, `44.1 kHz`, stereo.
-- If the mount connects but you still hear nothing, check that the source meter moves and that the source is not muted.
-- If `/listen/<streamingAlias>/<publishKey>/radio.mp3` or `/listen/<streamingAlias>/<publishKey>/radio.aac` returns `404` while publishing, Liquidsoap is not exposing a valid decoded source yet; verify encoder mode, codec, bitrate, sample rate, and source signal.
+- Password comes from `AUDIO_LIVE_SOURCE_PASSWORD` (same value as `AUDIO_ICECAST_SOURCE_PASSWORD` by default).
+- Required codec: `MP3`, `192 kbps`, `44.1 kHz`, stereo. OGG is not supported.
+- Liquidsoap reads from `/live/<publishMountToken>` via `input.http` and outputs MP3 and AAC to the listener mounts.
+- If `/listen/<streamingAlias>/<publishKey>/radio.aac` returns `404` while publishing, Liquidsoap has not yet received valid frames; verify codec, bitrate, and sample rate in the encoder.
 
-When the live publisher connects through its opaque per-stream route, `Liquidsoap` exposes the live stream.
-When it disconnects, the listeners go quiet until the next connection.
+When the live publisher connects, Liquidsoap reads the Icecast MP3 mount and exposes AAC and HLS.
+When it disconnects, those outputs go quiet until the next connection.
 
 ## HLS note
 
@@ -99,6 +94,7 @@ docker compose up -d
 
 ## Stage 6 note
 
-Stage 6 keeps the same opaque public URLs from stage 5, but now each audio streaming gets its own inner live input,
-its own Icecast mounts, and its own HLS output directory.
+Stage 6 keeps the same opaque public URLs from stage 5, but each audio streaming now gets its own Icecast source mount,
+its own `input.http` reader in Liquidsoap, and its own HLS output directory.
+Source clients connect directly to Icecast; nginx is not in the source path.
 There is no Auto DJ or music upload path in this stage.
