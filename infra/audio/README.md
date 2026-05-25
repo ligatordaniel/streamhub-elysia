@@ -9,7 +9,7 @@ This folder runs the isolated audio streaming layer without touching the video s
 - Run `FFmpeg` as a lightweight HLS packager for each dedicated AAC mount.
 - Publish `HLS` as the default browser and mobile playback path.
 - Keep direct `MP3` and `AAC` mounts available for fallback and diagnostics.
-- Accept an optional live source from `BUTT` and keep the stack quiet when that source is disconnected.
+- Accept an optional live source from any Icecast-compatible encoder and keep the stack quiet when that source is disconnected.
 - Generate dedicated internal Liquidsoap, Icecast, and HLS paths for every audio streaming.
 - Expose opaque per-stream playback routes and a shorter per-stream live publish mount without relying on a shared fallback chain.
 - Avoid reusing the MediaMTX or Nginx routes from the video stack.
@@ -27,14 +27,15 @@ Optional environment values:
 - `AUDIO_ICECAST_RELAY_PASSWORD` changes the Icecast relay password.
 - `AUDIO_ICECAST_HOSTNAME` changes the hostname Icecast publishes in metadata.
 - `AUDIO_STATION_NAME` changes the station name shown by the stage-3 outputs.
-- `AUDIO_LIVE_SOURCE_PORT` changes the public live publish port used by `BUTT`.
-- `AUDIO_LIVE_SOURCE_PASSWORD` changes the publish password used by `BUTT`.
+- `AUDIO_LIVE_SOURCE_PORT` changes the public live publish port used by the live source encoder.
+- `AUDIO_LIVE_SOURCE_PASSWORD` changes the publish password used by the live source encoder.
 
 ## Services
 
 - `Icecast` for source mounts and client delivery.
-- `Liquidsoap` for live-only routing from the `BUTT` source.
-- `Liquidsoap harbor` for one optional live source input per audio streaming.
+- `Liquidsoap` for live-only routing from the live source.
+- `Liquidsoap harbor` for one optional Icecast-compatible live source input per audio streaming.
+- Stage 6 currently runs on Liquidsoap 2.1.x with `input.harbor` and `icy=true` for source compatibility.
 - `FFmpeg` for one lightweight AAC-to-HLS worker per audio streaming.
 - `HLS` at `/hls/<streamingAlias>/<publishKey>/live.m3u8` as the default browser and mobile playback path.
 - `MP3` at `/listen/<streamingAlias>/<publishKey>/radio.mp3` as the compatibility fallback.
@@ -64,7 +65,7 @@ Optional environment values:
 
 ## Live publish input
 
-- `BUTT` should publish in `IceCast` mode to the same server host and port used by `AUDIO_PUBLIC_URL`.
+- Any IceCast-compatible source client should publish in `IceCast` mode to the same server host and port used by `AUDIO_PUBLIC_URL`.
 - The stage-6 publish mount is `/mount/<publishMountToken>`.
 - Username stays `source`.
 - Password comes from `AUDIO_LIVE_SOURCE_PASSWORD`.
@@ -72,7 +73,8 @@ Optional environment values:
 - The inner harbor mount is generated from that short publish token.
 - Live source connections now stay open longer before timing out, so brief silence or pauses do not disconnect the live input as quickly.
 - Recommended first profile: `MP3`, `192 kbps`, `44.1 kHz`, stereo.
-- If the mount connects but you still hear nothing, check that BUTT's input meter moves and that the source is not muted.
+- If the mount connects but you still hear nothing, check that the source meter moves and that the source is not muted.
+- If `/listen/<streamingAlias>/<publishKey>/radio.mp3` or `/listen/<streamingAlias>/<publishKey>/radio.aac` returns `404` while publishing, Liquidsoap is not exposing a valid decoded source yet; verify encoder mode, codec, bitrate, sample rate, and source signal.
 
 When the live publisher connects through its opaque per-stream route, `Liquidsoap` exposes the live stream.
 When it disconnects, the listeners go quiet until the next connection.
@@ -82,10 +84,10 @@ When it disconnects, the listeners go quiet until the next connection.
 Each HLS worker reads one dedicated AAC mount and repackages it with stream copy.
 That keeps CPU use low while giving web, iOS, and Android clients a stable default path per streaming.
 
-## BUTT note
+## Live source note
 
-`BUTT` is the live source path in stage 6.
-It is the only live source for now. If it is not connected, the stack stays quiet.
+Any IceCast-compatible source client can publish through the stage-6 live mount.
+If no live source is connected, the stack stays quiet.
 
 ## Start the stack
 

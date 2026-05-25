@@ -5,6 +5,58 @@ import { runtime } from '../config/runtime';
 
 type CopyState = 'idle' | 'copied' | 'error';
 type AudioPreviewState = 'connecting' | 'ready' | 'fallback' | 'error';
+type SourceSignalState = 'checking' | 'live' | 'offline';
+
+function SourceStatusBadge({ statusUrl, icecastMount }: { statusUrl: string; icecastMount: string }): JSX.Element {
+  const [signal, setSignal] = useState<SourceSignalState>('checking');
+
+  useEffect(() => {
+    let canceled = false;
+
+    async function poll(): Promise<void> {
+      try {
+        const res = await fetch(statusUrl, { cache: 'no-store' });
+        if (!res.ok) {
+          if (!canceled) setSignal('offline');
+          return;
+        }
+        const data = (await res.json()) as { icestats?: { source?: unknown } };
+        const raw = data?.icestats?.source;
+        const sources: unknown[] = raw === null || raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
+        const isLive = sources.some((s) => {
+          if (s === null || typeof s !== 'object') return false;
+          const src = s as { mount?: unknown; listenurl?: unknown };
+          if (typeof src.mount === 'string') return src.mount === icecastMount;
+          if (typeof src.listenurl === 'string') {
+            try { return new URL(src.listenurl).pathname === icecastMount; } catch { return false; }
+          }
+          return false;
+        });
+        if (!canceled) setSignal(isLive ? 'live' : 'offline');
+      } catch {
+        if (!canceled) setSignal('offline');
+      }
+    }
+
+    void poll();
+    const id = window.setInterval(() => void poll(), 5000);
+    return () => {
+      canceled = true;
+      window.clearInterval(id);
+    };
+  }, [statusUrl, icecastMount]);
+
+  const dotClass =
+    signal === 'live' ? 'source-dot source-dot--live' : signal === 'checking' ? 'source-dot source-dot--checking' : 'source-dot source-dot--offline';
+  const label = signal === 'live' ? 'On air' : signal === 'checking' ? 'Checking…' : 'No signal';
+
+  return (
+    <div className="source-status-badge" aria-live="polite" aria-label={`Source signal: ${label}`}>
+      <span className={dotClass} aria-hidden="true" />
+      <span className="source-status-label">{label}</span>
+    </div>
+  );
+}
 
 function hashOpaqueToken(value: string): string {
   let firstHash = 0x811c9dc5;
@@ -138,10 +190,32 @@ function EndpointCard({
   );
 }
 
-function AudioPreviewCard({ hlsUrl, mp3Url }: { hlsUrl: string; mp3Url: string }): JSX.Element {
+function AudioPreviewCard({
+  hlsUrl,
+  mp3Url,
+  statusUrl,
+  icecastMount,
+}: {
+  hlsUrl: string;
+  mp3Url: string;
+  statusUrl: string;
+  icecastMount: string;
+}): JSX.Element {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [status, setStatus] = useState<AudioPreviewState>('connecting');
   const [statusMessage, setStatusMessage] = useState('Connecting to the audio HLS playlist.');
+  const [reloadVersion, setReloadVersion] = useState(0);
+
+  const playbackHlsUrl =
+    reloadVersion > 0 ? `${hlsUrl}${hlsUrl.includes('?') ? '&' : '?'}reload=${reloadVersion}` : hlsUrl;
+  const playbackMp3Url =
+    reloadVersion > 0 ? `${mp3Url}${mp3Url.includes('?') ? '&' : '?'}reload=${reloadVersion}` : mp3Url;
+
+  function handleReload(): void {
+    setStatus('connecting');
+    setStatusMessage('Reconnecting to the audio HLS playlist.');
+    setReloadVersion((currentValue) => currentValue + 1);
+  }
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -179,7 +253,7 @@ function AudioPreviewCard({ hlsUrl, mp3Url }: { hlsUrl: string; mp3Url: string }
 
       hls?.destroy();
       hls = null;
-      audio.src = mp3Url;
+      audio.src = playbackMp3Url;
       audio.load();
       setStatus('fallback');
       setStatusMessage(message);
@@ -230,7 +304,7 @@ function AudioPreviewCard({ hlsUrl, mp3Url }: { hlsUrl: string; mp3Url: string }
     }, 8000);
 
     if (audio.canPlayType('application/vnd.apple.mpegurl')) {
-      audio.src = hlsUrl;
+      audio.src = playbackHlsUrl;
       audio.load();
 
       return () => {
@@ -282,19 +356,40 @@ function AudioPreviewCard({ hlsUrl, mp3Url }: { hlsUrl: string; mp3Url: string }
       hls?.destroy();
       resetAudio();
     };
-  }, [hlsUrl, mp3Url]);
+  }, [playbackHlsUrl, playbackMp3Url]);
 
   return (
     <article className="status-card streaming-endpoint-card">
-      <span className="status-eyebrow">Preview</span>
-      <h2>Audio HLS player</h2>
+      <div className="streaming-player-head">
+        <div className="streaming-player-head-copy">
+          <span className="status-eyebrow">Preview</span>
+          <h2>Audio HLS player</h2>
+        </div>
+        <div className="streaming-player-controls">
+          <button className="streaming-reload-button" type="button" onClick={handleReload}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Reload
+          </button>
+          <SourceStatusBadge statusUrl={statusUrl} icecastMount={icecastMount} />
+        </div>
+      </div>
       <p>
         This preview uses HLS first for the browser path. If HLS is not available in this browser, it falls back
-        to the MP3 mount.
+        to the MP3 mount. If you start the source after opening this page, use Reload instead of refreshing the
+        whole dashboard.
       </p>
       <audio ref={audioRef} className="w-full" controls preload="none" />
       <p className="field-hint">{statusMessage}</p>
-      {status === 'fallback' ? <CopyableValue label="Preview fallback URL" value={mp3Url} /> : null}
+      {status === 'fallback' ? <CopyableValue label="Preview fallback URL" value={playbackMp3Url} /> : null}
     </article>
   );
 }
@@ -322,9 +417,10 @@ export function AudioStreamingControlPage({
   const hlsUrl = `${audioBaseUrl}/hls/${routeBase}/live.m3u8`;
   const aacUrl = `${audioBaseUrl}/listen/${routeBase}/radio.aac`;
   const mp3Url = `${audioBaseUrl}/listen/${routeBase}/radio.mp3`;
+  const icecastMount = `/streams/${routeBase}/radio.mp3`;
   const livePublishHost = getAudioLiveHost();
-  const livePublishPort = new URL(audioBaseUrl).port || (audioBaseUrl.startsWith('https://') ? '443' : '80');
-  const livePublishMount = `/mount/${publishMountToken}`;
+  const livePublishPort = runtime.audioLiveSourcePort;
+  const livePublishMount = icecastMount;
   const livePublishPassword = runtime.audioLiveSourcePassword;
   const livePublishUrl = `icecast://source:${livePublishPassword}@${livePublishHost}:${livePublishPort}${livePublishMount}`;
 
@@ -355,15 +451,15 @@ export function AudioStreamingControlPage({
             </article>
 
             <article className="status-card streaming-endpoint-card streaming-publish-card">
-              <h2>BUTT live publish settings</h2>
+              <h2>Live source publish settings</h2>
               <p className="streaming-publish-lead">
-                When BUTT connects here, Liquidsoap exposes the live audio. When BUTT disconnects, the stack goes
-                quiet.
+                Use any live source encoder here. When the source connects, Liquidsoap exposes the live audio. When
+                it disconnects, the stack goes quiet.
               </p>
               <p className="field-hint">
-                Use MP3, 192 kbps, 44.1 kHz, stereo, and make sure the input meter moves in BUTT. If the mount
-                connects but you still hear nothing, the source is usually muted, the mic is not selected, or the
-                encoder format is wrong.
+                In BUTT: set connection type to <strong>Icecast 2</strong> (not Shoutcast). Codec must be{' '}
+                <strong>MP3 at 192 kbps, 44.1 kHz, stereo</strong>. OGG is not supported on this path. Port is the
+                direct Icecast port, not the listener gateway.
               </p>
               <div className="streaming-publish-list" role="list">
                 <div className="streaming-publish-row" role="listitem">
@@ -413,7 +509,7 @@ export function AudioStreamingControlPage({
           </div>
 
           <div className="streaming-control-column">
-            <AudioPreviewCard hlsUrl={hlsUrl} mp3Url={mp3Url} />
+            <AudioPreviewCard hlsUrl={hlsUrl} mp3Url={mp3Url} statusUrl={statusUrl} icecastMount={icecastMount} />
 
             <article className="status-card streaming-endpoint-card">
               <span className="status-eyebrow">Ops</span>

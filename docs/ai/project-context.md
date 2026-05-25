@@ -31,9 +31,11 @@ Audio and video live delivery must stay isolated by stack so one media flow does
 - BUTT is treated as the optional live publisher for audio.
 - Planned audio baseline remains Icecast plus Liquidsoap, with AAC over HLS as the default playback path and MP3 as the compatibility fallback when live is available.
 - Audio stage 6 replaces the shared inner audio chain with dedicated per-stream Liquidsoap harbor inputs, dedicated per-stream Icecast listener mounts, and dedicated per-stream HLS worker outputs derived from the audio streamings table.
+- Audio stage 6 keeps `input.harbor` on Liquidsoap 2.1.x and enables `icy=true` for broader Icecast/Shoutcast-style source compatibility.
 - Audio stage 6 keeps opaque per-stream playback routes at `/listen/<streamingAlias>/<publishKey>/radio.aac`, `/listen/<streamingAlias>/<publishKey>/radio.mp3`, and `/hls/<streamingAlias>/<publishKey>/live.m3u8`, while shortening the live publish mount to `/mount/<publishMountToken>`.
-- Audio stage 6 derives `publishMountToken` from the streaming id and ingest key so BUTT gets a shorter mount without collapsing all audio streamings into one shared publish path.
+- Audio stage 6 derives `publishMountToken` from the streaming id and ingest key so any Icecast-compatible source client gets a shorter mount without collapsing all audio streamings into one shared publish path.
 - Audio stage 6 sets a longer `input.harbor` timeout so brief silence or pauses from the live source do not disconnect too quickly.
+- Audio stage 6 listener mounts can return `404` while no valid live source is connected; they become available only after Liquidsoap decodes a valid incoming source stream.
 - Audio stage 6 is live-only for now: there is no Auto DJ or music fallback while the live publisher is disconnected.
 - Stream paths are short opaque aliases: `live/<streamingAlias>/<publishKey>`.
 - Nginx fronts HLS and the WebRTC HTTP handshake; RTMP ingest stays direct to MediaMTX.
@@ -78,8 +80,8 @@ Audio and video live delivery must stay isolated by stack so one media flow does
 - AUDIO_ICECAST_RELAY_PASSWORD defines the relay credential for future audio relays.
 - AUDIO_ICECAST_HOSTNAME defines the hostname Icecast publishes in its generated metadata and playlists.
 - AUDIO_STATION_NAME defines the public station name used by the stage-2 audio outputs.
-- AUDIO_LIVE_SOURCE_PORT defines the public TCP port used by BUTT or another live source to publish into Liquidsoap harbor.
-- AUDIO_LIVE_SOURCE_PASSWORD defines the password used by BUTT or another live source to publish into Liquidsoap harbor.
+- AUDIO_LIVE_SOURCE_PORT defines the public TCP port used by any Icecast-compatible live source to publish into Liquidsoap harbor.
+- AUDIO_LIVE_SOURCE_PASSWORD defines the password used by any Icecast-compatible live source to publish into Liquidsoap harbor.
 - Audio stage 6 derives the internal harbor mount names from the streaming alias and publish key, so no shared `AUDIO_LIVE_SOURCE_MOUNT` input is required anymore.
 
 ## Frontend styling contract

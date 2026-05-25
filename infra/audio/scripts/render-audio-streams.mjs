@@ -8,9 +8,8 @@ const stationName = process.env.AUDIO_STATION_NAME ?? 'Streamhub Live';
 const publicUrl = process.env.AUDIO_PUBLIC_URL ?? 'http://localhost:8090';
 const icecastHost = process.env.AUDIO_ICECAST_HOST ?? 'icecast';
 const icecastPort = Number.parseInt(process.env.AUDIO_ICECAST_PORT ?? '8000', 10);
-const icecastPassword = process.env.AUDIO_ICECAST_SOURCE_PASSWORD ?? 'streamhub-source';
-const liveSourcePort = Number.parseInt(process.env.AUDIO_LIVE_SOURCE_PORT ?? '8010', 10);
 const liveSourcePassword = process.env.AUDIO_LIVE_SOURCE_PASSWORD ?? 'Q7mLp2Xv9RtK';
+const icecastPassword = process.env.AUDIO_ICECAST_SOURCE_PASSWORD ?? liveSourcePassword;
 const opaqueAlphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
 function hashOpaqueToken(value) {
@@ -132,29 +131,12 @@ function renderLiquidsoap(streams) {
     const escapedPublicUrl = escapeLiquidsoap(publicUrl);
     const escapedIcecastHost = escapeLiquidsoap(icecastHost);
     const escapedIcecastPassword = escapeLiquidsoap(icecastPassword);
-    const escapedLiveSourcePassword = escapeLiquidsoap(liveSourcePassword);
     const escapedMp3Mount = escapeLiquidsoap(stream.mp3Mount);
     const escapedAacMount = escapeLiquidsoap(stream.aacMount);
 
-    lines.push(`live_source_${suffix} = input.harbor(`);
-    lines.push(`  "${escapedHarborMount}",`);
-    lines.push(`  port=${liveSourcePort},`);
-    lines.push('  timeout=600.,');
-    lines.push(`  password="${escapedLiveSourcePassword}"`);
-    lines.push(')');
-    lines.push('');
-    lines.push('output.icecast(');
-    lines.push('  %ffmpeg(format="mp3", %audio(codec="libmp3lame", b="192k")),');
-    lines.push('  fallible=true,');
-    lines.push(`  host="${escapedIcecastHost}",`);
-    lines.push(`  port=${icecastPort},`);
-    lines.push(`  password="${escapedIcecastPassword}",`);
-    lines.push(`  mount="${escapedMp3Mount}",`);
-    lines.push(`  name="${escapedStationName} - ${streamLabel} MP3",`);
-    lines.push('  description="Streamhub live audio",');
-    lines.push('  genre="Mixed",');
-    lines.push(`  url="${escapedPublicUrl}",`);
-    lines.push(`  live_source_${suffix}`);
+    lines.push(`live_source_${suffix} = input.http(`);
+    lines.push(`  "http://${escapedIcecastHost}:${icecastPort}${escapedMp3Mount}",`);
+    lines.push('  max_buffer=30.');
     lines.push(')');
     lines.push('');
     lines.push('output.icecast(');
