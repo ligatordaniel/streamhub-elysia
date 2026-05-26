@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 
+import { getCompanyAudioAutodjState } from '../audio-autodj/api';
+import { useAuth } from '../auth/auth-context';
+import { AudioAutodjPanel } from '../components/audio-autodj-panel';
 import { runtime } from '../config/runtime';
 
 type CopyState = 'idle' | 'copied' | 'error';
 type AudioPreviewState = 'connecting' | 'ready' | 'fallback' | 'error';
 type SourceSignalState = 'checking' | 'live' | 'offline';
+type AutodjSignalState = 'checking' | 'enabled' | 'disabled';
 
 function SourceStatusBadge({ statusUrl, icecastMount }: { statusUrl: string; icecastMount: string }): JSX.Element {
   const [signal, setSignal] = useState<SourceSignalState>('checking');
@@ -52,6 +56,62 @@ function SourceStatusBadge({ statusUrl, icecastMount }: { statusUrl: string; ice
 
   return (
     <div className="source-status-badge" aria-live="polite" aria-label={`Source signal: ${label}`}>
+      <span className={dotClass} aria-hidden="true" />
+      <span className="source-status-label">{label}</span>
+    </div>
+  );
+}
+
+function AutodjStatusBadge(): JSX.Element {
+  const { session } = useAuth();
+  const [signal, setSignal] = useState<AutodjSignalState>('checking');
+
+  useEffect(() => {
+    const token = session?.token;
+
+    if (!token) {
+      setSignal('disabled');
+      return;
+    }
+
+    const authToken: string = token;
+
+    let canceled = false;
+
+    async function poll(): Promise<void> {
+      try {
+        const state = await getCompanyAudioAutodjState(authToken);
+
+        if (!canceled) {
+          setSignal(state.enabled ? 'enabled' : 'disabled');
+        }
+      } catch {
+        if (!canceled) {
+          setSignal('disabled');
+        }
+      }
+    }
+
+    void poll();
+    const id = window.setInterval(() => void poll(), 5000);
+
+    return () => {
+      canceled = true;
+      window.clearInterval(id);
+    };
+  }, [session?.token]);
+
+  const dotClass =
+    signal === 'enabled'
+      ? 'source-dot source-dot--live'
+      : signal === 'checking'
+        ? 'source-dot source-dot--checking'
+        : 'source-dot source-dot--offline';
+  const label =
+    signal === 'enabled' ? 'AutoDJ on' : signal === 'checking' ? 'Checking AutoDJ…' : 'AutoDJ off';
+
+  return (
+    <div className="source-status-badge" aria-live="polite" aria-label={`AutoDJ status: ${label}`}>
       <span className={dotClass} aria-hidden="true" />
       <span className="source-status-label">{label}</span>
     </div>
@@ -378,6 +438,7 @@ function AudioPreviewCard({
             </svg>
             Reload
           </button>
+          <AutodjStatusBadge />
           <SourceStatusBadge statusUrl={statusUrl} icecastMount={icecastMount} />
         </div>
       </div>
@@ -437,97 +498,102 @@ export function AudioStreamingControlPage({
           </button>
         </header>
 
-        <section className="dashboard-content streaming-control-grid">
-          <div className="streaming-control-column">
-            <article className="status-card streaming-endpoint-card">
-              <span className="status-eyebrow">Stage 6</span>
-              <h2>Live-only per-stream audio pipeline</h2>
-              <p>
-                Audio streamings now keep their own inner live input, listener mounts, and HLS output while using a
-                shorter publish mount for live sources. There is no Auto DJ in this stage.
-              </p>
-            </article>
+        <section className="dashboard-content">
+          <section className="streaming-control-grid">
+            <div className="streaming-control-column">
+              <article className="status-card streaming-endpoint-card">
+                <span className="status-eyebrow">Stage 7</span>
+                <h2>Live audio with optional company AutoDJ fallback</h2>
+                <p>
+                  This streaming keeps its own live input, listener mounts, and HLS output. If AutoDJ is turned off
+                  below, the signal waits only for the live client source.
+                </p>
+              </article>
 
-            <article className="status-card streaming-endpoint-card streaming-publish-card">
-              <h2>Live source publish settings</h2>
-              <p className="streaming-publish-lead">
-                Use any live source encoder here. When the source connects, Liquidsoap exposes the live audio. When
-                it disconnects, the stack goes quiet.
-              </p>
-              <p className="field-hint">
-                In BUTT: set connection type to <strong>Icecast 2</strong> (not Shoutcast). Codec must be{' '}
-                <strong>MP3 at 192 kbps, 44.1 kHz, stereo</strong>. OGG is not supported on this path. Port is the
-                direct Icecast port, not the listener gateway.
-              </p>
-              <div className="streaming-publish-list" role="list">
-                <div className="streaming-publish-row" role="listitem">
-                  <CopyableValue label="Live server host" value={livePublishHost} />
+              <article className="status-card streaming-endpoint-card streaming-publish-card">
+                <h2>Live source publish settings</h2>
+                <p className="streaming-publish-lead">
+                  Use any live source encoder here. When the source connects, Liquidsoap exposes the live audio. When
+                  it disconnects, the stream either falls back to AutoDJ or stays silent, depending on the toggle below.
+                </p>
+                <p className="field-hint">
+                  In BUTT: set connection type to <strong>Icecast 2</strong> (not Shoutcast). Codec must be{' '}
+                  <strong>MP3 at 192 kbps, 44.1 kHz, stereo</strong>. OGG is not supported on this path. Port is the
+                  direct Icecast port, not the listener gateway.
+                </p>
+                <div className="streaming-publish-list" role="list">
+                  <div className="streaming-publish-row" role="listitem">
+                    <CopyableValue label="Live server host" value={livePublishHost} />
+                  </div>
+                  <div className="streaming-publish-row" role="listitem">
+                    <CopyableValue label="Live server port" value={livePublishPort} />
+                  </div>
+                  <div className="streaming-publish-row" role="listitem">
+                    <CopyableValue label="Source username" value="source" />
+                  </div>
+                  <div className="streaming-publish-row" role="listitem">
+                    <CopyableValue label="Source password" value={livePublishPassword} />
+                  </div>
+                  <div className="streaming-publish-row" role="listitem">
+                    <CopyableValue label="Mount" value={livePublishMount} />
+                  </div>
+                  <div className="streaming-publish-row" role="listitem">
+                    <CopyableValue label="Combined live URL" value={livePublishUrl} />
+                  </div>
                 </div>
-                <div className="streaming-publish-row" role="listitem">
-                  <CopyableValue label="Live server port" value={livePublishPort} />
-                </div>
-                <div className="streaming-publish-row" role="listitem">
-                  <CopyableValue label="Source username" value="source" />
-                </div>
-                <div className="streaming-publish-row" role="listitem">
-                  <CopyableValue label="Source password" value={livePublishPassword} />
-                </div>
-                <div className="streaming-publish-row" role="listitem">
-                  <CopyableValue label="Mount" value={livePublishMount} />
-                </div>
-                <div className="streaming-publish-row" role="listitem">
-                  <CopyableValue label="Combined live URL" value={livePublishUrl} />
-                </div>
-              </div>
-            </article>
+              </article>
 
-            <EndpointCard
-              eyebrow="Default playback"
-              title="HLS playlist URL"
-              description="Use this as the default browser, iOS, and Android playback path for the shared audio stack."
-              label="Audio HLS playlist"
-              value={hlsUrl}
-            />
+              <EndpointCard
+                eyebrow="Default playback"
+                title="HLS playlist URL"
+                description="Use this as the default browser, iOS, and Android playback path for the shared audio stack."
+                label="Audio HLS playlist"
+                value={hlsUrl}
+              />
 
-            <EndpointCard
-              eyebrow="Playback"
-              title="Direct AAC listener URL"
-              description="Use this for direct AAC clients or diagnostics when you want the raw Icecast mount."
-              label="AAC listener"
-              value={aacUrl}
-            />
+              <EndpointCard
+                eyebrow="Playback"
+                title="Direct AAC listener URL"
+                description="Use this for direct AAC clients or diagnostics when you want the raw Icecast mount."
+                label="AAC listener"
+                value={aacUrl}
+              />
 
-            <EndpointCard
-              eyebrow="Fallback"
-              title="MP3 listener URL"
-              description="Use this when you need the broadest client compatibility across old players and apps."
-              label="MP3 listener"
-              value={mp3Url}
-            />
-          </div>
+              <EndpointCard
+                eyebrow="Fallback"
+                title="MP3 listener URL"
+                description="Use this when you need the broadest client compatibility across old players and apps."
+                label="MP3 listener"
+                value={mp3Url}
+              />
+            </div>
 
-          <div className="streaming-control-column">
-            <AudioPreviewCard hlsUrl={hlsUrl} mp3Url={mp3Url} statusUrl={statusUrl} icecastMount={icecastMount} />
+            <div className="streaming-control-column">
+              <AudioPreviewCard hlsUrl={hlsUrl} mp3Url={mp3Url} statusUrl={statusUrl} icecastMount={icecastMount} />
 
-            <article className="status-card streaming-endpoint-card">
-              <span className="status-eyebrow">Ops</span>
-              <h2>Health and status</h2>
-              <p>
-                Use these endpoints to verify the shared audio stack while stage 4 serves HLS and keeps the direct mounts alive.
-              </p>
-              <CopyableValue label="Audio health URL" value={healthUrl} />
-              <CopyableValue label="Icecast status URL" value={statusUrl} />
-              <a
-                href={statusUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="streaming-embed-link"
-                aria-label="Open audio status JSON in a new tab"
-              >
-                Open status JSON
-              </a>
-            </article>
-          </div>
+              <article className="status-card streaming-endpoint-card">
+                <span className="status-eyebrow">Ops</span>
+                <h2>Health and status</h2>
+                <p>
+                  Use these endpoints to verify the shared audio stack while stage 7 serves HLS, direct listener mounts,
+                  and optional AutoDJ fallback.
+                </p>
+                <CopyableValue label="Audio health URL" value={healthUrl} />
+                <CopyableValue label="Icecast status URL" value={statusUrl} />
+                <a
+                  href={statusUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="streaming-embed-link"
+                  aria-label="Open audio status JSON in a new tab"
+                >
+                  Open status JSON
+                </a>
+              </article>
+            </div>
+          </section>
+
+          <AudioAutodjPanel />
         </section>
       </section>
     </main>

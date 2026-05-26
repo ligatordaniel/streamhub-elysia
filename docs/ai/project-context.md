@@ -36,12 +36,18 @@ Audio and video live delivery must stay isolated by stack so one media flow does
 - Audio stage 6 keeps opaque per-stream playback routes at `/listen/<streamingAlias>/<publishKey>/radio.aac`, `/listen/<streamingAlias>/<publishKey>/radio.mp3`, and `/hls/<streamingAlias>/<publishKey>/live.m3u8`.
 - Audio stage 6 source codec must be MP3 at 192 kbps, 44.1 kHz, stereo; OGG is not supported on this path.
 - Audio stage 6 listener mounts can return `404` while no valid live source is connected; the AAC and HLS paths become available only after Liquidsoap receives a valid MP3 source stream on the Icecast mount.
-- Audio stage 6 is live-only for now: there is no Auto DJ or music fallback while the live publisher is disconnected.
+- Audio stage 7 adds a company-scoped AutoDJ layer on top of stage 6 so live audio still keeps per-stream mounts while music playback is shared by company.
+- Audio stage 7 stores uploaded music on disk under `infra/audio/library/companies/<companyId>/` and keeps folder, track, playlist, and schedule metadata in SQLite.
+- Audio stage 7 keeps one default company playlist running as priority 2 and allows custom company playlists as priority 1 when one of their weekly schedules is active.
+- Audio stage 7 rejects overlapping custom weekly schedules inside the same company because two active priority-1 playlists would make source selection ambiguous.
+- Audio stage 7 keeps the live source above AutoDJ priority: if a valid live publisher is connected on a streaming, that live source wins; if not, Liquidsoap falls back to the company AutoDJ source.
+- Audio stage 7 materializes the currently active company playlist into `/srv/audio/playlists/companies/<companyId>/active.m3u` and Liquidsoap watches that file for changes.
 - Stream paths are short opaque aliases: `live/<streamingAlias>/<publishKey>`.
 - Nginx fronts HLS and the WebRTC HTTP handshake; RTMP ingest stays direct to MediaMTX.
 - The streaming control page renders a real HLS player and falls back to hls.js when the browser lacks native HLS support.
 - The streaming control page shows a shortened RTMP publish URL prefix and shortened publish key separately for OBS or vMix, plus the combined ingest URL for convenience.
 - Stored ingest keys are editable only by super_admin in the admin console, and the control page derives short opaque publish aliases from the streaming id and ingest key.
+- The frontend exposes a company-scoped AutoDJ page for uploads, folders, playlists, schedules, and drag-and-drop track assignment.
 - Emergency fallback images are shared at the company level, not per streaming path or browser session.
 - Each company can store up to 10 emergency fallback images, with one selected image and one autoplay flag used by both the control page and the public embed player.
 
@@ -83,6 +89,7 @@ Audio and video live delivery must stay isolated by stack so one media flow does
 - AUDIO_LIVE_SOURCE_PORT defines the public TCP port where Icecast is exposed directly so any Icecast-compatible live source can publish without going through the nginx gateway.
 - AUDIO_LIVE_SOURCE_PASSWORD defines the source credential for direct Icecast publish connections; defaults to the same value as AUDIO_ICECAST_SOURCE_PASSWORD.
 - Audio stage 6 derives the live publish mount from the streaming alias and publish key, so no shared mount env var is required.
+- AUDIO_AUTODJ_SYNC_INTERVAL_SECONDS defines how often the Liquidsoap sidecar refreshes active AutoDJ playlist files from SQLite and the shared library volume.
 
 ## Frontend styling contract
 - The frontend styling system is Tailwind CSS on top of Vite.

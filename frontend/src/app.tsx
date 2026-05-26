@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { useAuth } from './auth/auth-context';
 import { ProtectedRoute } from './components/protected-route';
+import { AudioAutodjPage } from './pages/audio-autodj-page';
 import { DashboardPage } from './pages/dashboard-page';
 import { LoginPage } from './pages/login-page';
 import { PublicHlsPlayerPage } from './pages/public-hls-player-page';
@@ -40,6 +41,7 @@ export function App(): JSX.Element {
       <Route path="/embed/hls/live/:streamingAlias/:publishKey" element={<PublicHlsPlayerPage />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<DashboardPage />} />
+        <Route path="/audio/autodj" element={<AudioAutodjPage />} />
         <Route path="/streamings/:streamingId" element={<StreamingControlPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

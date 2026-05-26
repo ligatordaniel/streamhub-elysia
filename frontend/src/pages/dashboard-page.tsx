@@ -27,6 +27,56 @@ function StreamingCard({
   );
 }
 
+function StreamingSection({
+  title,
+  description,
+  streamings,
+  companyName,
+  emptyMessage,
+}: {
+  title: string;
+  description: string;
+  streamings: Array<{
+    id: string;
+    type: string;
+    name: string;
+  }>;
+  companyName: string;
+  emptyMessage: string;
+}): JSX.Element {
+  return (
+    <section>
+      <div className="section-heading">
+        <div>
+          <span className="status-eyebrow">{title}</span>
+          <h2>{streamings.length}</h2>
+        </div>
+        <p>{description}</p>
+      </div>
+
+      <div className="streamings-viewport mt-4">
+        {streamings.length > 0 ? (
+          <div className="streaming-grid">
+            {streamings.map((streaming) => (
+              <StreamingCard
+                key={streaming.id}
+                id={streaming.id}
+                type={streaming.type}
+                name={streaming.name}
+                companyName={companyName}
+              />
+            ))}
+          </div>
+        ) : (
+          <article className="status-card empty-state">
+            <p>{emptyMessage}</p>
+          </article>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function DashboardPage(): JSX.Element {
   const { session, logout } = useAuth();
 
@@ -35,6 +85,8 @@ export function DashboardPage(): JSX.Element {
   }
 
   const isSuperAdmin = session.user.role === 'super_admin';
+  const audioStreamings = session.streamings.filter((streaming) => streaming.type === 'audio');
+  const videoStreamings = session.streamings.filter((streaming) => streaming.type === 'video');
 
   return (
     <main className="dashboard-page w-full">
@@ -66,29 +118,25 @@ export function DashboardPage(): JSX.Element {
                 <span className="status-eyebrow">My streamings</span>
                 <h2>{session.streamings.length}</h2>
               </div>
-              <p>These are the streamings attached to your company.</p>
-            </div>
-
-            <div className="streamings-viewport mt-4">
-              {session.streamings.length > 0 ? (
-                <div className="streaming-grid">
-                  {session.streamings.map((streaming) => (
-                    <StreamingCard
-                      key={streaming.id}
-                      id={streaming.id}
-                      type={streaming.type}
-                      name={streaming.name}
-                      companyName={session.company.name}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <article className="status-card empty-state">
-                  <p>No streamings are attached to this company yet.</p>
-                </article>
-              )}
+              <p>These are the streamings attached to your company, now split by media type.</p>
             </div>
           </section>
+
+          <StreamingSection
+            title="Audio servers"
+            description="Open the control page for each audio streaming, including publish settings and playback URLs."
+            streamings={audioStreamings}
+            companyName={session.company.name}
+            emptyMessage="No audio streamings are attached to this company yet."
+          />
+
+          <StreamingSection
+            title="Video servers"
+            description="Open the control page for each video streaming, including ingest, playback, and fallback controls."
+            streamings={videoStreamings}
+            companyName={session.company.name}
+            emptyMessage="No video streamings are attached to this company yet."
+          />
 
           {isSuperAdmin && <AdminPanel token={session.token} />}
         </section>

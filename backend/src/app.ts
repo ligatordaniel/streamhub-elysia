@@ -15,6 +15,27 @@ import type {
   UserRole,
 } from './types';
 import {
+  AudioAutodjConflictError,
+  AudioAutodjValidationError,
+  clearCompanyAudioLibraryDirectory,
+  createAudioFolder,
+  createAudioPlaylist,
+  createAudioPlaylistSchedule,
+  ensureDefaultAudioPlaylistForCompany,
+  deleteAudioFolder,
+  deleteAudioPlaylist,
+  deleteAudioPlaylistSchedule,
+  deleteAudioTrack,
+  findCompanyAudioAutodjState,
+  replaceAudioPlaylistItems,
+  saveAudioTrack,
+  updateCompanyAudioAutodjEnabled,
+  updateAudioFolder,
+  updateAudioPlaylist,
+  updateAudioPlaylistSchedule,
+  updateAudioTrack,
+} from './services/audio-autodj';
+import {
   countStreamingsForCompany,
   countUsersForCompany,
   deleteCompanyById,
@@ -88,6 +109,39 @@ interface StreamingEmergencyFallbackRequest {
   autoplayEnabled: boolean;
   selectedImageId: string | null;
   images: EmergencyImage[];
+}
+
+interface CreateAudioFolderRequest {
+  name: string;
+}
+
+interface UpdateAudioFolderRequest {
+  name: string;
+}
+
+interface UpdateAudioTrackRequest {
+  folderId: string | null;
+}
+
+interface CreateAudioPlaylistRequest {
+  name: string;
+}
+
+interface UpdateAudioPlaylistRequest {
+  name: string;
+}
+
+interface ReplaceAudioPlaylistItemsRequest {
+  trackIds: string[];
+}
+
+interface AudioPlaylistScheduleRequest {
+  startMinuteOfWeek: number;
+  endMinuteOfWeek: number;
+}
+
+interface UpdateAudioAutodjSettingsRequest {
+  enabled: boolean;
 }
 
 const uuidPattern =
@@ -218,6 +272,100 @@ function parseCreateCompanyRequest(body: unknown): CreateCompanyRequest | null {
   return name ? { name } : null;
 }
 
+function parseMinuteOfWeek(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) ? value : null;
+}
+
+function parseCreateAudioFolderRequest(body: unknown): CreateAudioFolderRequest | null {
+  if (typeof body !== 'object' || body === null) {
+    return null;
+  }
+
+  const record = body as Record<string, unknown>;
+  const name = parseNonEmptyString(record.name);
+
+  return name ? { name } : null;
+}
+
+function parseUpdateAudioTrackRequest(body: unknown): UpdateAudioTrackRequest | null {
+  if (typeof body !== 'object' || body === null) {
+    return null;
+  }
+
+  const record = body as Record<string, unknown>;
+
+  if (!Object.prototype.hasOwnProperty.call(record, 'folderId')) {
+    return null;
+  }
+
+  if (record.folderId === null) {
+    return { folderId: null };
+  }
+
+  const folderId = parseUuid(record.folderId);
+
+  return folderId ? { folderId } : null;
+}
+
+function parseReplaceAudioPlaylistItemsRequest(body: unknown): ReplaceAudioPlaylistItemsRequest | null {
+  if (typeof body !== 'object' || body === null) {
+    return null;
+  }
+
+  const record = body as Record<string, unknown>;
+
+  if (!Array.isArray(record.trackIds)) {
+    return null;
+  }
+
+  const trackIds: string[] = [];
+
+  for (const value of record.trackIds) {
+    const trackId = parseUuid(value);
+
+    if (!trackId) {
+      return null;
+    }
+
+    trackIds.push(trackId);
+  }
+
+  return { trackIds };
+}
+
+function parseAudioPlaylistScheduleRequest(body: unknown): AudioPlaylistScheduleRequest | null {
+  if (typeof body !== 'object' || body === null) {
+    return null;
+  }
+
+  const record = body as Record<string, unknown>;
+  const startMinuteOfWeek = parseMinuteOfWeek(record.startMinuteOfWeek);
+  const endMinuteOfWeek = parseMinuteOfWeek(record.endMinuteOfWeek);
+
+  if (startMinuteOfWeek === null || endMinuteOfWeek === null) {
+    return null;
+  }
+
+  return {
+    startMinuteOfWeek,
+    endMinuteOfWeek,
+  };
+}
+
+function parseUpdateAudioAutodjSettingsRequest(body: unknown): UpdateAudioAutodjSettingsRequest | null {
+  if (typeof body !== 'object' || body === null) {
+    return null;
+  }
+
+  const record = body as Record<string, unknown>;
+
+  if (typeof record.enabled !== 'boolean') {
+    return null;
+  }
+
+  return { enabled: record.enabled };
+}
+
 function parseCreateStreamingRequest(body: unknown): CreateStreamingRequest | null {
   if (typeof body !== 'object' || body === null) {
     return null;
@@ -298,12 +446,17 @@ function parseUpdateUserRequest(body: unknown): UpdateUserRequest | null {
   }
 
   const record = body as Record<string, unknown>;
-  const companyId = record.companyId === undefined ? undefined : parseUuid(record.companyId);
-  const email = record.email === undefined ? undefined : parseNonEmptyString(record.email);
-  const password = record.password === undefined ? undefined : parseNonEmptyString(record.password);
-  const displayName =
+  const parsedCompanyId = record.companyId === undefined ? undefined : parseUuid(record.companyId);
+  const parsedEmail = record.email === undefined ? undefined : parseNonEmptyString(record.email);
+  const parsedPassword = record.password === undefined ? undefined : parseNonEmptyString(record.password);
+  const parsedDisplayName =
     record.displayName === undefined ? undefined : parseNonEmptyString(record.displayName);
-  const role = record.role === undefined ? undefined : parseUserRole(record.role);
+  const parsedRole = record.role === undefined ? undefined : parseUserRole(record.role);
+  const companyId = typeof parsedCompanyId === 'string' ? parsedCompanyId : undefined;
+  const email = typeof parsedEmail === 'string' ? parsedEmail : undefined;
+  const password = typeof parsedPassword === 'string' ? parsedPassword : undefined;
+  const displayName = typeof parsedDisplayName === 'string' ? parsedDisplayName : undefined;
+  const role = parsedRole === undefined || parsedRole === null ? undefined : parsedRole;
 
   if (
     (record.companyId !== undefined && !companyId) ||
@@ -316,7 +469,25 @@ function parseUpdateUserRequest(body: unknown): UpdateUserRequest | null {
     return null;
   }
 
-  return { companyId, email, password, displayName, role };
+  return {
+    ...(companyId !== undefined ? { companyId } : {}),
+    ...(email !== undefined ? { email } : {}),
+    ...(password !== undefined ? { password } : {}),
+    ...(displayName !== undefined ? { displayName } : {}),
+    ...(role !== undefined ? { role } : {}),
+  };
+}
+
+function parseRequestedCompanyId(value: unknown): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return parseUuid(value);
+}
+
+function isFormDataFile(value: FormDataEntryValue): value is File {
+  return typeof value !== 'string';
 }
 
 function extractBearerToken(authorizationHeader: string | null): string | null {
@@ -419,7 +590,36 @@ function resolveEmergencyFallbackCompanyId(
   return session.company.id === fallbackStreaming.companyId ? session.company.id : null;
 }
 
-export function createApp({ env, db }: AppOptions): Elysia {
+function resolveAudioAutodjCompanyId(
+  session: CurrentSession,
+  requestedCompanyId: string | undefined
+): string | null {
+  if (!requestedCompanyId) {
+    return session.company.id;
+  }
+
+  if (session.user.role === 'super_admin') {
+    return requestedCompanyId;
+  }
+
+  return session.company.id === requestedCompanyId ? session.company.id : null;
+}
+
+function handleAudioAutodjError(set: { status: number }, error: unknown) {
+  if (error instanceof AudioAutodjConflictError) {
+    set.status = 409;
+    return { error: error.message };
+  }
+
+  if (error instanceof AudioAutodjValidationError) {
+    set.status = 400;
+    return { error: error.message };
+  }
+
+  throw error;
+}
+
+export function createApp({ env, db }: AppOptions) {
   return new Elysia()
     .use(cors({ origin: env.corsOrigin }))
     .get('/health', () => ({ ok: true, app: env.appName }))
@@ -496,6 +696,509 @@ export function createApp({ env, db }: AppOptions): Elysia {
 
       return { streamings: session.streamings };
     })
+    .get('/audio/autodj', async ({ request, query, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId) {
+        set.status = 400;
+        return { error: 'Valid company id is required.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      if (!findCompanyById(db, companyId)) {
+        set.status = 404;
+        return { error: 'Company not found.' };
+      }
+
+      return findCompanyAudioAutodjState(db, companyId);
+    })
+    .patch('/audio/autodj/settings', async ({ request, query, body, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const payload = parseUpdateAudioAutodjSettingsRequest(body);
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if (!payload || ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)) {
+        set.status = 400;
+        return { error: 'AutoDJ settings payload is invalid.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      if (!findCompanyById(db, companyId)) {
+        set.status = 404;
+        return { error: 'Company not found.' };
+      }
+
+      try {
+        return updateCompanyAudioAutodjEnabled(db, companyId, payload.enabled);
+      } catch (error) {
+        return handleAudioAutodjError(set, error);
+      }
+    })
+    .post('/audio/autodj/folders', async ({ request, query, body, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const payload = parseCreateAudioFolderRequest(body);
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if (!payload || ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)) {
+        set.status = 400;
+        return { error: 'Folder payload is invalid.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      try {
+        return createAudioFolder(db, companyId, payload);
+      } catch (error) {
+        return handleAudioAutodjError(set, error);
+      }
+    })
+    .patch('/audio/autodj/folders/:folderId', async ({ request, query, params, body, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const folderId = parseUuid(params.folderId);
+      const payload = parseCreateAudioFolderRequest(body);
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if (!folderId || !payload || ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)) {
+        set.status = 400;
+        return { error: 'Folder update payload is invalid.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      try {
+        return updateAudioFolder(db, companyId, folderId, payload);
+      } catch (error) {
+        return handleAudioAutodjError(set, error);
+      }
+    })
+    .delete('/audio/autodj/folders/:folderId', async ({ request, query, params, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const folderId = parseUuid(params.folderId);
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if (!folderId || ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)) {
+        set.status = 400;
+        return { error: 'Valid folder id is required.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      try {
+        deleteAudioFolder(db, companyId, folderId);
+        set.status = 204;
+        return null;
+      } catch (error) {
+        return handleAudioAutodjError(set, error);
+      }
+    })
+    .post('/audio/autodj/tracks/upload', async ({ request, query, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId) {
+        set.status = 400;
+        return { error: 'Valid company id is required.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      const formData = await request.formData();
+      const rawFolderId = formData.get('folderId');
+      const folderId = rawFolderId === null || rawFolderId === '' ? null : parseUuid(rawFolderId);
+
+      if (rawFolderId !== null && rawFolderId !== '' && !folderId) {
+        set.status = 400;
+        return { error: 'Valid folder id is required.' };
+      }
+
+      const files = formData.getAll('files').filter(isFormDataFile);
+
+      if (files.length === 0) {
+        set.status = 400;
+        return { error: 'At least one audio file is required.' };
+      }
+
+      try {
+        const tracks = [];
+
+        for (const file of files) {
+          if (!file.name.trim() || file.size <= 0) {
+            throw new AudioAutodjValidationError('Every uploaded track must have a name and content.');
+          }
+
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          tracks.push(
+            saveAudioTrack(db, companyId, {
+              folderId,
+              originalFileName: file.name,
+              mimeType: file.type,
+              sizeBytes: file.size,
+              data: bytes,
+            })
+          );
+        }
+
+        return { tracks };
+      } catch (error) {
+        return handleAudioAutodjError(set, error);
+      }
+    })
+    .patch('/audio/autodj/tracks/:trackId', async ({ request, query, params, body, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const trackId = parseUuid(params.trackId);
+      const payload = parseUpdateAudioTrackRequest(body);
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if (!trackId || !payload || ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)) {
+        set.status = 400;
+        return { error: 'Track update payload is invalid.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      try {
+        return updateAudioTrack(db, companyId, trackId, payload);
+      } catch (error) {
+        return handleAudioAutodjError(set, error);
+      }
+    })
+    .delete('/audio/autodj/tracks/:trackId', async ({ request, query, params, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const trackId = parseUuid(params.trackId);
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if (!trackId || ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)) {
+        set.status = 400;
+        return { error: 'Valid track id is required.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      try {
+        deleteAudioTrack(db, companyId, trackId);
+        set.status = 204;
+        return null;
+      } catch (error) {
+        return handleAudioAutodjError(set, error);
+      }
+    })
+    .post('/audio/autodj/playlists', async ({ request, query, body, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const payload = parseCreateAudioFolderRequest(body);
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if (!payload || ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)) {
+        set.status = 400;
+        return { error: 'Playlist payload is invalid.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      try {
+        return createAudioPlaylist(db, companyId, payload);
+      } catch (error) {
+        return handleAudioAutodjError(set, error);
+      }
+    })
+    .patch('/audio/autodj/playlists/:playlistId', async ({ request, query, params, body, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const playlistId = parseUuid(params.playlistId);
+      const payload = parseCreateAudioFolderRequest(body);
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if (!playlistId || !payload || ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)) {
+        set.status = 400;
+        return { error: 'Playlist update payload is invalid.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      try {
+        return updateAudioPlaylist(db, companyId, playlistId, payload);
+      } catch (error) {
+        return handleAudioAutodjError(set, error);
+      }
+    })
+    .delete('/audio/autodj/playlists/:playlistId', async ({ request, query, params, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const playlistId = parseUuid(params.playlistId);
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if (!playlistId || ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)) {
+        set.status = 400;
+        return { error: 'Valid playlist id is required.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      try {
+        deleteAudioPlaylist(db, companyId, playlistId);
+        set.status = 204;
+        return null;
+      } catch (error) {
+        return handleAudioAutodjError(set, error);
+      }
+    })
+    .put('/audio/autodj/playlists/:playlistId/items', async ({ request, query, params, body, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const playlistId = parseUuid(params.playlistId);
+      const payload = parseReplaceAudioPlaylistItemsRequest(body);
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if (!playlistId || !payload || ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)) {
+        set.status = 400;
+        return { error: 'Playlist items payload is invalid.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      try {
+        return replaceAudioPlaylistItems(db, companyId, playlistId, payload.trackIds);
+      } catch (error) {
+        return handleAudioAutodjError(set, error);
+      }
+    })
+    .post('/audio/autodj/playlists/:playlistId/schedules', async ({ request, query, params, body, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const playlistId = parseUuid(params.playlistId);
+      const payload = parseAudioPlaylistScheduleRequest(body);
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if (!playlistId || !payload || ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)) {
+        set.status = 400;
+        return { error: 'Schedule payload is invalid.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      try {
+        return createAudioPlaylistSchedule(db, companyId, playlistId, payload);
+      } catch (error) {
+        return handleAudioAutodjError(set, error);
+      }
+    })
+    .patch(
+      '/audio/autodj/playlists/:playlistId/schedules/:scheduleId',
+      async ({ request, query, params, body, set }) => {
+        const session = await resolveAuthenticatedSession(env, db, request);
+
+        if (!session) {
+          set.status = 401;
+          return { error: 'Unauthorized.' };
+        }
+
+        const playlistId = parseUuid(params.playlistId);
+        const scheduleId = parseUuid(params.scheduleId);
+        const payload = parseAudioPlaylistScheduleRequest(body);
+        const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+        if (
+          !playlistId ||
+          !scheduleId ||
+          !payload ||
+          ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)
+        ) {
+          set.status = 400;
+          return { error: 'Schedule payload is invalid.' };
+        }
+
+        const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+        if (!companyId) {
+          set.status = 403;
+          return { error: 'Forbidden.' };
+        }
+
+        try {
+          return updateAudioPlaylistSchedule(db, companyId, playlistId, scheduleId, payload);
+        } catch (error) {
+          return handleAudioAutodjError(set, error);
+        }
+      }
+    )
+    .delete(
+      '/audio/autodj/playlists/:playlistId/schedules/:scheduleId',
+      async ({ request, query, params, set }) => {
+        const session = await resolveAuthenticatedSession(env, db, request);
+
+        if (!session) {
+          set.status = 401;
+          return { error: 'Unauthorized.' };
+        }
+
+        const playlistId = parseUuid(params.playlistId);
+        const scheduleId = parseUuid(params.scheduleId);
+        const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+        if (
+          !playlistId ||
+          !scheduleId ||
+          ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)
+        ) {
+          set.status = 400;
+          return { error: 'Valid playlist id and schedule id are required.' };
+        }
+
+        const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+        if (!companyId) {
+          set.status = 403;
+          return { error: 'Forbidden.' };
+        }
+
+        try {
+          return deleteAudioPlaylistSchedule(db, companyId, playlistId, scheduleId);
+        } catch (error) {
+          return handleAudioAutodjError(set, error);
+        }
+      }
+    )
     .get('/streamings/:streamingId/emergency-fallback', async ({ request, params, set }) => {
       const session = await resolveAuthenticatedSession(env, db, request);
 
@@ -602,7 +1305,9 @@ export function createApp({ env, db }: AppOptions): Elysia {
         return { error: 'Company name is required.' };
       }
 
-      return upsertCompany(db, { name: payload.name });
+      const company = upsertCompany(db, { name: payload.name });
+      ensureDefaultAudioPlaylistForCompany(db, company.id);
+      return company;
     })
     .patch('/admin/companies/:companyId', async ({ request, params, body, set }) => {
       const session = await requireSuperAdminSession(env, db, request);
@@ -651,6 +1356,7 @@ export function createApp({ env, db }: AppOptions): Elysia {
       }
 
       deleteCompanyById(db, companyId);
+      clearCompanyAudioLibraryDirectory(companyId);
       set.status = 204;
       return null;
     })
@@ -714,11 +1420,13 @@ export function createApp({ env, db }: AppOptions): Elysia {
 
       const updatedUser = updateUserById(db, {
         id: userId,
-        companyId: payload.companyId,
-        email: payload.email,
-        passwordHash: payload.password ? await hashPassword(payload.password) : undefined,
-        role: payload.role,
-        displayName: payload.displayName,
+        ...(payload.companyId !== undefined ? { companyId: payload.companyId } : {}),
+        ...(payload.email !== undefined ? { email: payload.email } : {}),
+        ...(payload.password !== undefined
+          ? { passwordHash: await hashPassword(payload.password) }
+          : {}),
+        ...(payload.role !== undefined ? { role: payload.role } : {}),
+        ...(payload.displayName !== undefined ? { displayName: payload.displayName } : {}),
       });
 
       return toPublicUser(updatedUser);

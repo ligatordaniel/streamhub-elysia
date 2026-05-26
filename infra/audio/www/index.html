@@ -38,11 +38,11 @@
 
 <body>
   <main>
-    <h1>Audio stack stage 6</h1>
+    <h1>Audio stack stage 7</h1>
     <p>Este stack sigue separado del video para que el flujo de audio crezca sin tocar MediaMTX ni sus rutas.</p>
     <p>
-      En esta etapa cada streaming de audio ya tiene su propio input live, sus propios mounts en Icecast y su propia
-      salida HLS interna, manteniendo las rutas opacas publicas.
+      En esta etapa cada streaming de audio mantiene su propio input live, sus mounts dedicados en Icecast y su salida
+      HLS interna, pero ahora comparte un AutoDJ por compañia para el fallback musical.
     </p>
     <ul>
       <li>Healthcheck: <code>/healthz</code></li>
@@ -50,10 +50,16 @@
       <li>HLS per stream: <code>/hls/&lt;streamingAlias&gt;/&lt;publishKey&gt;/live.m3u8</code></li>
       <li>MP3 per stream: <code>/listen/&lt;streamingAlias&gt;/&lt;publishKey&gt;/radio.mp3</code></li>
       <li>AAC per stream: <code>/listen/&lt;streamingAlias&gt;/&lt;publishKey&gt;/radio.aac</code></li>
-      <li>Live publish per stream: <code>/mount/&lt;publishMountToken&gt;</code></li>
+      <li>Live publish per stream: <code>/live/&lt;publishMountToken&gt;</code></li>
+      <li>AutoDJ active file per company: <code>/srv/audio/playlists/companies/&lt;companyId&gt;/active.m3u</code></li>
     </ul>
     <p>
-      No hay Auto DJ ni subida de musica por ahora. Si no hay BUTT transmitiendo, la stack queda en silencio.
+      Prioridad de reproduccion: live gana siempre; si no hay live, primero se intenta la playlist personalizada activa
+      de la compañia; si no hay horario custom activo, se usa la playlist default 24/7.
+    </p>
+    <p>
+      La libreria, carpetas, playlists y horarios se administran desde la pagina AutoDJ del frontend. Si dos horarios
+      custom se superponen, el backend rechaza el cambio y explica el conflicto.
     </p>
   </main>
 </body>
