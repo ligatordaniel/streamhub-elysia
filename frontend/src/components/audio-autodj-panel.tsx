@@ -1,8 +1,8 @@
 import { useEffect, useState, type DragEvent } from 'react';
+import { createPortal } from 'react-dom';
 
 import { useAuth } from '../auth/auth-context';
 import {
-  createAudioFolder,
   createAudioPlaylist,
   createAudioPlaylistSchedule,
   deleteAudioFolder,
@@ -16,6 +16,7 @@ import {
   uploadAudioTracks,
 } from '../audio-autodj/api';
 import type {
+  AudioLibraryFolder,
   AudioLibraryTrack,
   AudioPlaylist,
   CompanyAudioAutodjState,
@@ -28,7 +29,21 @@ type ScheduleDraft = {
   endTime: string;
 };
 
-const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+type ScheduleDayOption = {
+  value: string;
+  label: string;
+};
+
+const dayLabels = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
+const scheduleDayOptions: ScheduleDayOption[] = [
+  { value: '1', label: 'Lunes' },
+  { value: '2', label: 'Martes' },
+  { value: '3', label: 'Miercoles' },
+  { value: '4', label: 'Jueves' },
+  { value: '5', label: 'Viernes' },
+  { value: '6', label: 'Sabado' },
+  { value: '0', label: 'Domingo' },
+];
 const defaultScheduleDraft: ScheduleDraft = {
   startDay: '1',
   startTime: '09:00',
@@ -89,16 +104,49 @@ function getScheduleDraftValue(
   return drafts[playlistId] ?? defaultScheduleDraft;
 }
 
+function getTrackFolderName(track: AudioLibraryTrack, folders: AudioLibraryFolder[]): string {
+  return folders.find((folder) => folder.id === track.folderId)?.name ?? 'root';
+}
+
+function ScheduleDayGroup({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (nextValue: string) => void;
+}): JSX.Element {
+  return (
+    <div className="audio-schedule-day-group">
+      <span className="audio-schedule-group-label">{label}</span>
+      <div className="audio-day-list">
+        {scheduleDayOptions.map((option) => (
+          <label
+            key={option.value}
+            className={`audio-day-option ${value === option.value ? 'audio-day-option--selected' : ''}`}
+          >
+            <input type="checkbox" checked={value === option.value} onChange={() => onChange(option.value)} />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function AudioAutodjPanel(): JSX.Element {
   const { session } = useAuth();
   const [state, setState] = useState<CompanyAudioAutodjState | null>(null);
   const [statusMessage, setStatusMessage] = useState('Loading AutoDJ.');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
-  const [folderName, setFolderName] = useState('');
   const [playlistName, setPlaylistName] = useState('');
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
   const [scheduleDrafts, setScheduleDrafts] = useState<Record<string, ScheduleDraft>>({});
+  const [scheduleModalPlaylistId, setScheduleModalPlaylistId] = useState<string | null>(null);
+  const [searchText, setSearchText] = useState('');
+  const [debouncedSearchText, setDebouncedSearchText] = useState('');
 
   useEffect(() => {
     if (!session?.token) {
@@ -125,6 +173,61 @@ export function AudioAutodjPanel(): JSX.Element {
       setStatusMessage('AutoDJ could not be loaded.');
     }
   }
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchText(searchText);
+    }, 2000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [searchText]);
+
+  useEffect(() => {
+    if (!scheduleModalPlaylistId) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [scheduleModalPlaylistId]);
+
+  useEffect(() => {
+    if (!scheduleModalPlaylistId) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setScheduleModalPlaylistId(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [scheduleModalPlaylistId]);
+
+  useEffect(() => {
+    if (!scheduleModalPlaylistId) {
+      return;
+    }
+
+    const playlistExists = state?.playlists.some(
+      (playlist) => playlist.id === scheduleModalPlaylistId && playlist.kind === 'custom'
+    );
+
+    if (!playlistExists) {
+      setScheduleModalPlaylistId(null);
+    }
+  }, [scheduleModalPlaylistId, state]);
 
   async function runMutation(action: () => Promise<void>, successMessage: string): Promise<void> {
     setIsBusy(true);
@@ -209,17 +312,6 @@ export function AudioAutodjPanel(): JSX.Element {
     }, 'Tracks uploaded.');
   }
 
-  async function handleCreateFolder(): Promise<void> {
-    if (!session?.token || !folderName.trim()) {
-      return;
-    }
-
-    await runMutation(async () => {
-      await createAudioFolder(session.token, { name: folderName.trim() });
-      setFolderName('');
-    }, 'Folder created.');
-  }
-
   async function handleCreatePlaylist(): Promise<void> {
     if (!session?.token || !playlistName.trim()) {
       return;
@@ -280,10 +372,173 @@ export function AudioAutodjPanel(): JSX.Element {
   const defaultPlaylist = playlists.find((playlist) => playlist.kind === 'default') ?? null;
   const customPlaylists = playlists.filter((playlist) => playlist.kind === 'custom');
   const autodjIsEnabled = state?.enabled ?? true;
+  const scheduleModalPlaylist = scheduleModalPlaylistId
+    ? playlists.find((playlist) => playlist.id === scheduleModalPlaylistId && playlist.kind === 'custom') ?? null
+    : null;
+  const scheduleModalDraft = scheduleModalPlaylist
+    ? getScheduleDraftValue(scheduleDrafts, scheduleModalPlaylist.id)
+    : defaultScheduleDraft;
+  const searchTerm = debouncedSearchText.trim().toLowerCase();
+  const isSearchPending = searchText !== debouncedSearchText;
+  const visibleTracks = tracks.filter((track) => {
+    if (!searchTerm) {
+      return true;
+    }
+
+    return [track.originalFileName, track.mimeType, getTrackFolderName(track, folders)].some((value) =>
+      value.toLowerCase().includes(searchTerm)
+    );
+  });
+
+  const scheduleModal =
+    scheduleModalPlaylist && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            className="audio-schedule-modal-backdrop"
+            role="presentation"
+            onClick={() => setScheduleModalPlaylistId(null)}
+          >
+            <section
+              className="audio-schedule-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={`audio-schedule-modal-title-${scheduleModalPlaylist.id}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header className="audio-schedule-modal-head">
+                <div>
+                  <span className="status-eyebrow">Schedules</span>
+                  <h3 id={`audio-schedule-modal-title-${scheduleModalPlaylist.id}`}>{scheduleModalPlaylist.name}</h3>
+                  <p>Use Monday to Sunday checkboxes and 24h times to define the active window.</p>
+                </div>
+                <button type="button" className="ghost-button" onClick={() => setScheduleModalPlaylistId(null)}>
+                  Close
+                </button>
+              </header>
+
+              <div className="audio-schedule-modal-body">
+                <div className="audio-schedule-modal-stack">
+                  <section className="audio-schedule-panel">
+                    <div>
+                      <span className="status-eyebrow">Create window</span>
+                      <h4 className="mt-2 text-lg font-semibold">New weekly schedule</h4>
+                      <p className="text-sm text-slate-300">Priority 1 takes over only inside this range.</p>
+                    </div>
+
+                    <div className="audio-schedule-field-stack">
+                      <ScheduleDayGroup
+                        label="Start day"
+                        value={scheduleModalDraft.startDay}
+                        onChange={(nextValue) =>
+                          setScheduleDrafts((currentValue) => ({
+                            ...currentValue,
+                            [scheduleModalPlaylist.id]: { ...scheduleModalDraft, startDay: nextValue },
+                          }))
+                        }
+                      />
+
+                      <label className="audio-schedule-time-field">
+                        <span className="audio-schedule-group-label">Start time</span>
+                        <input
+                          type="time"
+                          step={60}
+                          value={scheduleModalDraft.startTime}
+                          onChange={(event) =>
+                            setScheduleDrafts((currentValue) => ({
+                              ...currentValue,
+                              [scheduleModalPlaylist.id]: { ...scheduleModalDraft, startTime: event.target.value },
+                            }))
+                          }
+                        />
+                        <p>Formato 24h, por ejemplo 23:30.</p>
+                      </label>
+
+                      <ScheduleDayGroup
+                        label="End day"
+                        value={scheduleModalDraft.endDay}
+                        onChange={(nextValue) =>
+                          setScheduleDrafts((currentValue) => ({
+                            ...currentValue,
+                            [scheduleModalPlaylist.id]: { ...scheduleModalDraft, endDay: nextValue },
+                          }))
+                        }
+                      />
+
+                      <label className="audio-schedule-time-field">
+                        <span className="audio-schedule-group-label">End time</span>
+                        <input
+                          type="time"
+                          step={60}
+                          value={scheduleModalDraft.endTime}
+                          onChange={(event) =>
+                            setScheduleDrafts((currentValue) => ({
+                              ...currentValue,
+                              [scheduleModalPlaylist.id]: { ...scheduleModalDraft, endTime: event.target.value },
+                            }))
+                          }
+                        />
+                        <p>Formato 24h, por ejemplo 23:30.</p>
+                      </label>
+                    </div>
+
+                    <button type="button" disabled={isBusy} onClick={() => void handleCreateSchedule(scheduleModalPlaylist.id)}>
+                      Add schedule
+                    </button>
+                  </section>
+
+                  <section className="audio-schedule-panel">
+                    <div>
+                      <span className="status-eyebrow">Current windows</span>
+                      <h4 className="mt-2 text-lg font-semibold">Active schedule list</h4>
+                      <p className="text-sm text-slate-300">Remove any window that should stop controlling the playlist.</p>
+                    </div>
+
+                    <div className="audio-schedule-list">
+                      {scheduleModalPlaylist.schedules.length > 0 ? (
+                        scheduleModalPlaylist.schedules.map((schedule) => (
+                          <div key={schedule.id} className="audio-schedule-item">
+                            <div>
+                              <strong>
+                                {formatMinuteOfWeek(schedule.startMinuteOfWeek)} to {formatMinuteOfWeek(schedule.endMinuteOfWeek)}
+                              </strong>
+                              <p>Priority 1 takes over only inside this window.</p>
+                            </div>
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              onClick={() =>
+                                void runMutation(
+                                  async () => {
+                                    await deleteAudioPlaylistSchedule(session.token, scheduleModalPlaylist.id, schedule.id);
+                                  },
+                                  'Schedule removed.'
+                                )
+                              }
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <article className="audio-track-empty">
+                          <strong>No custom schedule yet.</strong>
+                          <p>Create the first weekly window in the form above.</p>
+                        </article>
+                      )}
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </section>
+          </div>,
+          document.body
+        )
+      : null;
 
   return (
-    <section className="grid gap-6">
-      <article className="status-card">
+    <>
+      <section className="grid gap-6">
+        <article className="status-card audio-autodj-hero grid gap-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <span className="status-eyebrow">AutoDJ state</span>
@@ -323,47 +578,75 @@ export function AudioAutodjPanel(): JSX.Element {
             : 'AutoDJ is disabled. If live goes down, this company stays silent and waits for the client source from BUTT or another encoder.'}
         </p>
         {errorMessage ? <p className="mt-3 text-red-300">{errorMessage}</p> : null}
+
+        <div className="audio-autodj-metrics">
+          <div className="audio-autodj-metric">
+            <strong>{tracks.length}</strong>
+            <span>tracks uploaded</span>
+          </div>
+          <div className="audio-autodj-metric">
+            <strong>{folders.length}</strong>
+            <span>folders ready</span>
+          </div>
+          <div className="audio-autodj-metric">
+            <strong>{playlists.length}</strong>
+            <span>playlists</span>
+          </div>
+          <div className="audio-autodj-metric">
+            <strong>{audioStreamingCount}</strong>
+            <span>audio signals</span>
+          </div>
+        </div>
       </article>
 
       <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <article className="status-card grid gap-4">
+        <article className="status-card audio-library-card grid gap-5">
           <div className="section-heading">
             <div>
               <span className="status-eyebrow">Library</span>
               <h2>{tracks.length}</h2>
             </div>
-            <p>Folders and music live here. Upload audio, create folders, and drag tracks into folders or playlists.</p>
+            <p>Upload audio, search by name, codec, or folder, and drag tracks into folders or playlists.</p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-            <label className="grid gap-2 text-sm text-slate-300">
-              <span>Create folder</span>
+          <div className="audio-library-toolbar">
+            <label className="audio-search-card">
+              <span className="status-eyebrow">Search music</span>
               <input
-                className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white"
-                value={folderName}
-                onChange={(event) => setFolderName(event.target.value)}
-                placeholder="Morning drive"
+                type="search"
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="Search by file, format, or folder"
               />
+              <div className="audio-search-status">
+                <p>
+                  {searchText
+                    ? isSearchPending
+                      ? 'Applying the filter after a 2 second pause.'
+                      : `${visibleTracks.length} result(s) from ${tracks.length} track(s).`
+                    : 'The search waits 2 seconds after you stop typing.'}
+                </p>
+                {searchText ? (
+                  <span className="audio-track-badge">{isSearchPending ? 'Debouncing' : 'Ready'}</span>
+                ) : null}
+              </div>
             </label>
-            <button type="button" disabled={isBusy || !folderName.trim()} onClick={() => void handleCreateFolder()}>
-              Add folder
-            </button>
-          </div>
 
-          <label className="grid gap-2 text-sm text-slate-300">
-            <span>Upload audio files</span>
-            <input
-              className="rounded-2xl border border-dashed border-white/20 bg-slate-950/40 px-4 py-4"
-              type="file"
-              accept="audio/*"
-              multiple
-              onChange={(event) => void handleUpload(event.target.files)}
-            />
-          </label>
+            <label className="audio-upload-card">
+              <span className="status-eyebrow">Upload audio files</span>
+              <input
+                type="file"
+                accept="audio/*"
+                multiple
+                onChange={(event) => void handleUpload(event.target.files)}
+              />
+              <p>Drop music here and keep it in this company library for playlists and folder drops.</p>
+            </label>
+          </div>
 
           <div className="grid gap-3">
             <div
-              className="rounded-3xl border border-dashed border-white/15 bg-slate-950/40 p-4"
+              className="audio-folder-card audio-folder-card--root"
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => {
                 event.preventDefault();
@@ -388,14 +671,14 @@ export function AudioAutodjPanel(): JSX.Element {
             </div>
 
             {folders.length > 0 ? (
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="audio-folder-grid">
                 {folders.map((folder) => {
                   const trackCount = tracks.filter((track) => track.folderId === folder.id).length;
 
                   return (
                     <div
                       key={folder.id}
-                      className="rounded-3xl border border-white/10 bg-slate-950/40 p-4"
+                      className="audio-folder-card"
                       onDragOver={(event) => event.preventDefault()}
                       onDrop={(event) => {
                         event.preventDefault();
@@ -428,49 +711,71 @@ export function AudioAutodjPanel(): JSX.Element {
               </div>
             ) : null}
 
-            <div className="grid gap-3">
-              {tracks.length > 0 ? (
-                tracks.map((track) => (
-                  <button
-                    key={track.id}
-                    className={`rounded-3xl border px-4 py-4 text-left shadow-none ${
-                      selectedTrackId === track.id
-                        ? 'border-cyan-300 bg-cyan-400/10 text-white'
-                        : 'border-white/10 bg-slate-950/50 text-white'
-                    }`}
-                    type="button"
-                    draggable
-                    onClick={() => setSelectedTrackId(track.id)}
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData('text/plain', track.id);
-                      setSelectedTrackId(track.id);
-                    }}
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <span className="status-eyebrow">Track</span>
-                        <h3 className="mt-2 text-lg font-semibold">{track.originalFileName}</h3>
-                        <p>
-                          {track.mimeType || 'audio'} · {formatBytes(track.sizeBytes)} · folder:{' '}
-                          {folders.find((folder) => folder.id === track.folderId)?.name ?? 'root'}
-                        </p>
+            <div className="audio-track-grid">
+              {visibleTracks.length > 0 ? (
+                visibleTracks.map((track) => {
+                  const folderName = getTrackFolderName(track, folders);
+
+                  return (
+                    <article
+                      key={track.id}
+                      className={`audio-track-card ${selectedTrackId === track.id ? 'audio-track-card--selected' : ''}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={selectedTrackId === track.id}
+                      aria-label={`Select ${track.originalFileName}`}
+                      draggable
+                      onClick={() => setSelectedTrackId(track.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setSelectedTrackId(track.id);
+                        }
+                      }}
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData('text/plain', track.id);
+                        setSelectedTrackId(track.id);
+                      }}
+                    >
+                      <div className="audio-track-card__head">
+                        <div className="audio-track-card__title">
+                          <span className="status-eyebrow">Track</span>
+                          <h3>{track.originalFileName}</h3>
+                          <p>
+                            {track.mimeType || 'audio'} · {formatBytes(track.sizeBytes)}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="ghost-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void runMutation(() => deleteAudioTrack(session.token, track.id), 'Track removed.');
+                          }}
+                        >
+                          Delete
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        className="ghost-button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void runMutation(() => deleteAudioTrack(session.token, track.id), 'Track removed.');
-                        }}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </button>
-                ))
+
+                      <div className="audio-track-badges">
+                        <span className="audio-track-badge">Folder: {folderName}</span>
+                        <span className="audio-track-badge">
+                          {selectedTrackId === track.id ? 'Selected' : 'Drag to folder or playlist'}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })
               ) : (
-                <article className="status-card empty-state">
-                  <p>No tracks uploaded yet.</p>
+                <article className="audio-track-empty">
+                  <strong>{searchTerm ? 'No matches yet.' : 'No tracks uploaded yet.'}</strong>
+                  <p>
+                    {searchTerm
+                      ? isSearchPending
+                        ? 'Wait for the 2 second debounce to finish.'
+                        : 'Try a different file name, folder, or codec.'
+                      : 'Upload music to start building the library.'}
+                  </p>
                 </article>
               )}
             </div>
@@ -548,8 +853,6 @@ export function AudioAutodjPanel(): JSX.Element {
           <div className="grid gap-4">
             {customPlaylists.length > 0 ? (
               customPlaylists.map((playlist) => {
-                const draft = getScheduleDraftValue(scheduleDrafts, playlist.id);
-
                 return (
                   <div
                     key={playlist.id}
@@ -603,109 +906,24 @@ export function AudioAutodjPanel(): JSX.Element {
                       <div>
                         <span className="status-eyebrow">Schedules</span>
                         <h4 className="mt-2 text-lg font-semibold">Weekly windows</h4>
-                        <p className="text-sm text-slate-300">If a new window overlaps another custom playlist, the backend rejects it and explains why.</p>
+                        <p className="text-sm text-slate-300">
+                          {playlist.schedules.length > 0
+                            ? `${playlist.schedules.length} window(s) configured.`
+                            : 'No custom schedule yet.'}
+                        </p>
                       </div>
-
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="grid gap-2 text-sm text-slate-300">
-                          <span>Start day</span>
-                          <select
-                            className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white"
-                            value={draft.startDay}
-                            onChange={(event) =>
-                              setScheduleDrafts((currentValue) => ({
-                                ...currentValue,
-                                [playlist.id]: { ...draft, startDay: event.target.value },
-                              }))
-                            }
-                          >
-                            {dayLabels.map((label, index) => (
-                              <option key={label} value={index.toString()}>
-                                {label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="grid gap-2 text-sm text-slate-300">
-                          <span>Start time</span>
-                          <input
-                            className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white"
-                            type="time"
-                            value={draft.startTime}
-                            onChange={(event) =>
-                              setScheduleDrafts((currentValue) => ({
-                                ...currentValue,
-                                [playlist.id]: { ...draft, startTime: event.target.value },
-                              }))
-                            }
-                          />
-                        </label>
-                        <label className="grid gap-2 text-sm text-slate-300">
-                          <span>End day</span>
-                          <select
-                            className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white"
-                            value={draft.endDay}
-                            onChange={(event) =>
-                              setScheduleDrafts((currentValue) => ({
-                                ...currentValue,
-                                [playlist.id]: { ...draft, endDay: event.target.value },
-                              }))
-                            }
-                          >
-                            {dayLabels.map((label, index) => (
-                              <option key={label} value={index.toString()}>
-                                {label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="grid gap-2 text-sm text-slate-300">
-                          <span>End time</span>
-                          <input
-                            className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white"
-                            type="time"
-                            value={draft.endTime}
-                            onChange={(event) =>
-                              setScheduleDrafts((currentValue) => ({
-                                ...currentValue,
-                                [playlist.id]: { ...draft, endTime: event.target.value },
-                              }))
-                            }
-                          />
-                        </label>
-                      </div>
-
-                      <button type="button" disabled={isBusy} onClick={() => void handleCreateSchedule(playlist.id)}>
-                        Add schedule
-                      </button>
-
-                      <div className="grid gap-2">
-                        {playlist.schedules.length > 0 ? (
-                          playlist.schedules.map((schedule) => (
-                            <div key={schedule.id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/50 px-3 py-3">
-                              <div>
-                                <strong>{formatMinuteOfWeek(schedule.startMinuteOfWeek)} to {formatMinuteOfWeek(schedule.endMinuteOfWeek)}</strong>
-                                <p className="text-sm text-slate-300">Priority 1 takes over only inside this window.</p>
-                              </div>
-                              <button
-                                type="button"
-                                className="ghost-button"
-                                onClick={() =>
-                                  void runMutation(
-                                    async () => {
-                                      await deleteAudioPlaylistSchedule(session.token, playlist.id, schedule.id);
-                                    },
-                                    'Schedule removed.'
-                                  )
-                                }
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-sm text-slate-300">No custom schedule yet.</p>
-                        )}
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-slate-950/40 p-4">
+                        <div>
+                          <p className="text-sm text-slate-300">Manage the weekly windows for this playlist in a modal.</p>
+                          <strong className="block mt-1 text-white">{playlist.schedules.length} schedule(s)</strong>
+                        </div>
+                        <button
+                          type="button"
+                          className="ghost-button"
+                          onClick={() => setScheduleModalPlaylistId(playlist.id)}
+                        >
+                          Manage schedules
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -720,5 +938,8 @@ export function AudioAutodjPanel(): JSX.Element {
         </article>
       </section>
     </section>
+
+      {scheduleModal}
+    </>
   );
 }

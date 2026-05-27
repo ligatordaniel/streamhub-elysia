@@ -82,13 +82,6 @@ export function updateCompanyAudioAutodjSettings(
   });
 }
 
-export function createAudioFolder(token: string, payload: CreateAudioFolderPayload): Promise<AudioLibraryFolder> {
-  return authorizedRequest<AudioLibraryFolder>(token, '/audio/autodj/folders', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-}
-
 export function updateAudioFolder(
   token: string,
   folderId: string,
