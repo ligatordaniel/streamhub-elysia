@@ -19,6 +19,7 @@ import type {
   AudioLibraryFolder,
   AudioLibraryTrack,
   AudioPlaylist,
+  AudioPlaylistSchedule,
   CompanyAudioAutodjState,
 } from '../audio-autodj/types';
 
@@ -50,6 +51,82 @@ const defaultScheduleDraft: ScheduleDraft = {
   endDay: '1',
   endTime: '10:00',
 };
+
+type ScheduleCalendarBlock = {
+  playlistName: string;
+  color: string;
+  dayIndex: number;
+  startMinutes: number;
+  endMinutes: number;
+};
+
+const weekDayColumns: Array<{ value: number; label: string }> = [
+  { value: 1, label: 'Lun' },
+  { value: 2, label: 'Mar' },
+  { value: 3, label: 'Mie' },
+  { value: 4, label: 'Jue' },
+  { value: 5, label: 'Vie' },
+  { value: 6, label: 'Sab' },
+  { value: 0, label: 'Dom' },
+];
+
+const playlistColorPalette = [
+  '#34d399',
+  '#60a5fa',
+  '#f97316',
+  '#a78bfa',
+  '#38bdf8',
+  '#f472b6',
+  '#fde68a',
+  '#fca5a5',
+];
+
+function hashStringToIndex(value: string, max: number): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash) % max;
+}
+
+function getPlaylistColor(playlistId: string): string {
+  return playlistColorPalette[hashStringToIndex(playlistId, playlistColorPalette.length)] ?? '#60a5fa';
+}
+
+function getScheduleSegments(schedule: AudioPlaylistSchedule): Array<{ dayIndex: number; startMinutes: number; endMinutes: number }> {
+  const segments: Array<{ dayIndex: number; startMinutes: number; endMinutes: number }> = [];
+  let cursor = schedule.startMinuteOfWeek;
+  const end = schedule.endMinuteOfWeek;
+
+  while (cursor < end) {
+    const dayIndex = Math.floor(cursor / (24 * 60));
+    const dayStart = dayIndex * 24 * 60;
+    const dayEnd = Math.min(end, dayStart + 24 * 60);
+    segments.push({
+      dayIndex: dayIndex % 7,
+      startMinutes: cursor - dayStart,
+      endMinutes: dayEnd - dayStart,
+    });
+    cursor = dayEnd;
+  }
+
+  return segments;
+}
+
+function getScheduleCalendarBlocks(playlists: AudioPlaylist[]): ScheduleCalendarBlock[] {
+  return playlists.flatMap((playlist) =>
+    playlist.schedules.flatMap((schedule) =>
+      getScheduleSegments(schedule).map((segment) => ({
+        playlistName: playlist.name,
+        color: getPlaylistColor(playlist.id),
+        dayIndex: segment.dayIndex,
+        startMinutes: segment.startMinutes,
+        endMinutes: segment.endMinutes,
+      }))
+    )
+  );
+}
 
 function formatBytes(value: number): string {
   if (value < 1024) {
@@ -369,6 +446,8 @@ export function AudioAutodjPanel(): JSX.Element {
   const folders = state?.folders ?? [];
   const playlists = state?.playlists ?? [];
   const audioStreamingCount = session.streamings.filter((streaming) => streaming.type === 'audio').length;
+  const scheduleCalendarBlocks = getScheduleCalendarBlocks(playlists);
+  const scheduleCalendarIsEmpty = scheduleCalendarBlocks.length === 0;
   const defaultPlaylist = playlists.find((playlist) => playlist.kind === 'default') ?? null;
   const customPlaylists = playlists.filter((playlist) => playlist.kind === 'custom');
   const autodjIsEnabled = state?.enabled ?? true;
@@ -934,6 +1013,71 @@ export function AudioAutodjPanel(): JSX.Element {
                 <p>No custom playlists yet.</p>
               </article>
             )}
+          </div>
+        </article>
+
+        <article className="status-card audio-schedule-calendar-card grid gap-5 lg:col-span-2">
+          <div className="section-heading">
+            <div>
+              <span className="status-eyebrow">Weekly schedule</span>
+              <h2>Playlist calendar</h2>
+            </div>
+            <p>Visualiza la semana con días y horas para saber qué playlist está activa en cada intervalo.</p>
+          </div>
+
+          <div className={`audio-schedule-calendar ${scheduleCalendarIsEmpty ? 'audio-schedule-calendar--empty' : ''}`}>
+            <div className="audio-schedule-calendar-header">
+              <div className="audio-schedule-time-axis-header">Hora</div>
+              {weekDayColumns.map((day) => (
+                <div key={day.value} className="audio-schedule-day-label">
+                  {day.label}
+                </div>
+              ))}
+            </div>
+
+            <div className="audio-schedule-calendar-body">
+              <div className="audio-schedule-time-axis" aria-hidden="true">
+                {Array.from({ length: 24 }).map((_, hour) => (
+                  <div key={hour} className="audio-schedule-time-label">
+                    {hour.toString().padStart(2, '0')}:00
+                  </div>
+                ))}
+              </div>
+
+              <div className="audio-schedule-calendar-columns-wrap">
+                {scheduleCalendarIsEmpty ? (
+                  <div className="audio-schedule-empty-state">
+                    <strong>Sin horarios todavía</strong>
+                    <p>Crea playlists y programa ventanas para ver bloques de color en esta vista semanal.</p>
+                  </div>
+                ) : null}
+
+                <div className="audio-schedule-calendar-columns">
+                  {weekDayColumns.map((day) => (
+                    <div key={day.value} className="audio-schedule-day-column" aria-label={day.label}>
+                      {Array.from({ length: 24 }).map((_, hour) => (
+                        <div key={`${day.value}-${hour}`} className="audio-schedule-day-hour-line" />
+                      ))}
+                      {scheduleCalendarBlocks
+                        .filter((block) => block.dayIndex === day.value)
+                        .map((block, blockIndex) => (
+                          <div
+                            key={`${block.playlistName}-${day.value}-${blockIndex}`}
+                            className="audio-schedule-slot"
+                            style={{
+                              top: `${(block.startMinutes / 1440) * 100}%`,
+                              height: `${((block.endMinutes - block.startMinutes) / 1440) * 100}%`,
+                              backgroundColor: block.color,
+                            }}
+                          >
+                            <span>{block.playlistName}</span>
+                          </div>
+                        ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </article>
       </section>
