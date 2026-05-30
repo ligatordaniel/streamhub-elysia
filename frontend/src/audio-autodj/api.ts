@@ -9,6 +9,7 @@ import type {
   CreateAudioPlaylistPayload,
   ReplaceAudioPlaylistItemsPayload,
   UpdateAudioAutodjSettingsPayload,
+  UpdateAudioPlaylistPayload,
   UpdateAudioTrackPayload,
 } from './types';
 
@@ -150,7 +151,7 @@ export function createAudioPlaylist(
 export function updateAudioPlaylist(
   token: string,
   playlistId: string,
-  payload: CreateAudioPlaylistPayload
+  payload: UpdateAudioPlaylistPayload
 ): Promise<AudioPlaylist> {
   return authorizedRequest<AudioPlaylist>(token, `/audio/autodj/playlists/${playlistId}`, {
     method: 'PATCH',

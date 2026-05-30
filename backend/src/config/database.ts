@@ -74,6 +74,14 @@ export function resolveDatabasePath(databasePath: string): string {
   return resolve(getWorkspaceRoot(), databasePath);
 }
 
+function ensurePlaylistColorColumn(db: Database): void {
+  const columns = getTableColumns(db, 'company_audio_playlists');
+
+  if (!columns.includes('color')) {
+    db.exec("ALTER TABLE company_audio_playlists ADD COLUMN color TEXT NOT NULL DEFAULT '#3b82f6'");
+  }
+}
+
 export function createDatabase(env: AppEnv): Database {
   const databaseFilePath = resolveDatabasePath(env.databasePath);
   const databaseDirectory = dirname(databaseFilePath);
@@ -88,6 +96,7 @@ export function createDatabase(env: AppEnv): Database {
   database.exec('PRAGMA journal_mode = WAL;');
   database.exec(schemaSql);
   ensureStreamingIngestKeys(database);
+  ensurePlaylistColorColumn(database);
 
   return database;
 }

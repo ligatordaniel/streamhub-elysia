@@ -7,11 +7,19 @@ cd "$ROOT_DIR"
 cd "$ROOT_DIR/backend"
 docker compose up -d --build
 
-cd "$ROOT_DIR/frontend"
-docker compose up -d --build
-
 cd "$ROOT_DIR/infra/streaming"
 docker compose up -d --force-recreate
 
 cd "$ROOT_DIR/infra/audio"
 docker compose up -d --force-recreate
+
+cd "$ROOT_DIR/frontend"
+docker compose up -d --build
+
+echo ""
+echo "  Servicios corriendo:"
+echo "  Backend     ->  http://localhost:3012"
+echo "  Streaming   ->  http://localhost:8080"
+echo "  Audio HLS   ->  http://localhost:8090"
+echo "  Frontend    ->  http://localhost:5173"
+echo ""

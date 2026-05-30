@@ -125,10 +125,12 @@ interface UpdateAudioTrackRequest {
 
 interface CreateAudioPlaylistRequest {
   name: string;
+  color: string;
 }
 
 interface UpdateAudioPlaylistRequest {
-  name: string;
+  name?: string;
+  color?: string;
 }
 
 interface ReplaceAudioPlaylistItemsRequest {
@@ -285,6 +287,43 @@ function parseCreateAudioFolderRequest(body: unknown): CreateAudioFolderRequest 
   const name = parseNonEmptyString(record.name);
 
   return name ? { name } : null;
+}
+
+const hexColorPattern = /^#[0-9a-fA-F]{6}$/;
+
+function parseHexColor(value: unknown): string | null {
+  return typeof value === 'string' && hexColorPattern.test(value.trim()) ? value.trim() : null;
+}
+
+function parseCreateAudioPlaylistRequest(body: unknown): CreateAudioPlaylistRequest | null {
+  if (typeof body !== 'object' || body === null) {
+    return null;
+  }
+
+  const record = body as Record<string, unknown>;
+  const name = parseNonEmptyString(record.name);
+  const color = parseHexColor(record.color);
+
+  return name && color ? { name, color } : null;
+}
+
+function parseUpdateAudioPlaylistRequest(body: unknown): UpdateAudioPlaylistRequest | null {
+  if (typeof body !== 'object' || body === null) {
+    return null;
+  }
+
+  const record = body as Record<string, unknown>;
+  const name = 'name' in record ? parseNonEmptyString(record.name) ?? undefined : undefined;
+  const color = 'color' in record ? parseHexColor(record.color) ?? undefined : undefined;
+
+  if (name === undefined && color === undefined) {
+    return null;
+  }
+
+  const result: UpdateAudioPlaylistRequest = {};
+  if (name !== undefined) result.name = name;
+  if (color !== undefined) result.color = color;
+  return result;
 }
 
 function parseUpdateAudioTrackRequest(body: unknown): UpdateAudioTrackRequest | null {
@@ -981,7 +1020,7 @@ export function createApp({ env, db }: AppOptions) {
         return { error: 'Unauthorized.' };
       }
 
-      const payload = parseCreateAudioFolderRequest(body);
+      const payload = parseCreateAudioPlaylistRequest(body);
       const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
 
       if (!payload || ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)) {
@@ -1011,7 +1050,7 @@ export function createApp({ env, db }: AppOptions) {
       }
 
       const playlistId = parseUuid(params.playlistId);
-      const payload = parseCreateAudioFolderRequest(body);
+      const payload = parseUpdateAudioPlaylistRequest(body);
       const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
 
       if (!playlistId || !payload || ((query as Record<string, unknown>).companyId !== undefined && !requestedCompanyId)) {

@@ -5,18 +5,16 @@ import { useAuth } from '../auth/auth-context';
 import {
   createAudioPlaylist,
   createAudioPlaylistSchedule,
-  deleteAudioFolder,
   deleteAudioPlaylist,
   deleteAudioPlaylistSchedule,
   deleteAudioTrack,
   getCompanyAudioAutodjState,
   replaceAudioPlaylistItems,
-  updateAudioTrack,
+  updateAudioPlaylist,
   updateCompanyAudioAutodjSettings,
   uploadAudioTracks,
 } from '../audio-autodj/api';
 import type {
-  AudioLibraryFolder,
   AudioLibraryTrack,
   AudioPlaylist,
   AudioPlaylistSchedule,
@@ -37,13 +35,13 @@ type ScheduleDayOption = {
 
 const dayLabels = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
 const scheduleDayOptions: ScheduleDayOption[] = [
-  { value: '1', label: 'Lunes' },
-  { value: '2', label: 'Martes' },
-  { value: '3', label: 'Miercoles' },
-  { value: '4', label: 'Jueves' },
-  { value: '5', label: 'Viernes' },
-  { value: '6', label: 'Sabado' },
-  { value: '0', label: 'Domingo' },
+  { value: '1', label: 'Lun' },
+  { value: '2', label: 'Mar' },
+  { value: '3', label: 'Mie' },
+  { value: '4', label: 'Jue' },
+  { value: '5', label: 'Vie' },
+  { value: '6', label: 'Sab' },
+  { value: '0', label: 'Dom' },
 ];
 const defaultScheduleDraft: ScheduleDraft = {
   startDay: '1',
@@ -70,28 +68,23 @@ const weekDayColumns: Array<{ value: number; label: string }> = [
   { value: 0, label: 'Dom' },
 ];
 
-const playlistColorPalette = [
-  '#34d399',
-  '#60a5fa',
-  '#f97316',
-  '#a78bfa',
-  '#38bdf8',
-  '#f472b6',
-  '#fde68a',
-  '#fca5a5',
+const PLAYLIST_COLORS = [
+  '#ef4444', // rojo
+  '#f97316', // naranja
+  '#eab308', // amarillo
+  '#84cc16', // lima
+  '#22c55e', // verde
+  '#10b981', // esmeralda
+  '#06b6d4', // cyan
+  '#3b82f6', // azul
+  '#6366f1', // índigo
+  '#a855f7', // púrpura
+  '#ec4899', // rosa
+  '#f43f5e', // rosa-rojo
 ];
 
-function hashStringToIndex(value: string, max: number): number {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash << 5) - hash + value.charCodeAt(index);
-    hash |= 0;
-  }
-  return Math.abs(hash) % max;
-}
-
-function getPlaylistColor(playlistId: string): string {
-  return playlistColorPalette[hashStringToIndex(playlistId, playlistColorPalette.length)] ?? '#60a5fa';
+function pickRandomPlaylistColor(): string {
+  return PLAYLIST_COLORS[Math.floor(Math.random() * PLAYLIST_COLORS.length)] ?? '#3b82f6';
 }
 
 function getScheduleSegments(schedule: AudioPlaylistSchedule): Array<{ dayIndex: number; startMinutes: number; endMinutes: number }> {
@@ -119,7 +112,7 @@ function getScheduleCalendarBlocks(playlists: AudioPlaylist[]): ScheduleCalendar
     playlist.schedules.flatMap((schedule) =>
       getScheduleSegments(schedule).map((segment) => ({
         playlistName: playlist.name,
-        color: getPlaylistColor(playlist.id),
+        color: playlist.color,
         dayIndex: segment.dayIndex,
         startMinutes: segment.startMinutes,
         endMinutes: segment.endMinutes,
@@ -181,10 +174,6 @@ function getScheduleDraftValue(
   return drafts[playlistId] ?? defaultScheduleDraft;
 }
 
-function getTrackFolderName(track: AudioLibraryTrack, folders: AudioLibraryFolder[]): string {
-  return folders.find((folder) => folder.id === track.folderId)?.name ?? 'root';
-}
-
 function ScheduleDayGroup({
   label,
   value,
@@ -224,6 +213,8 @@ export function AudioAutodjPanel(): JSX.Element {
   const [scheduleModalPlaylistId, setScheduleModalPlaylistId] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
+  const [collapsedPlaylists, setCollapsedPlaylists] = useState<Set<string>>(new Set());
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!session?.token) {
@@ -254,7 +245,7 @@ export function AudioAutodjPanel(): JSX.Element {
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setDebouncedSearchText(searchText);
-    }, 2000);
+    }, 1000);
 
     return () => {
       window.clearTimeout(timeoutId);
@@ -321,10 +312,6 @@ export function AudioAutodjPanel(): JSX.Element {
     }
   }
 
-  function getTrack(trackId: string): AudioLibraryTrack | null {
-    return state?.tracks.find((track) => track.id === trackId) ?? null;
-  }
-
   function getDraggedTrackId(event: DragEvent<HTMLElement>): string | null {
     const directTrackId = event.dataTransfer.getData('text/plain');
 
@@ -333,17 +320,6 @@ export function AudioAutodjPanel(): JSX.Element {
     }
 
     return selectedTrackId;
-  }
-
-  async function moveTrackToFolder(trackId: string, folderId: string | null): Promise<void> {
-    if (!session?.token) {
-      return;
-    }
-
-    await runMutation(async () => {
-      await updateAudioTrack(session.token, trackId, { folderId });
-      setSelectedTrackId(trackId);
-    }, 'Track moved.');
   }
 
   async function appendTrackToPlaylist(trackId: string, playlist: AudioPlaylist): Promise<void> {
@@ -377,7 +353,7 @@ export function AudioAutodjPanel(): JSX.Element {
     }, 'Track removed from playlist.');
   }
 
-  async function handleUpload(fileList: FileList | null, folderId: string | null = null): Promise<void> {
+  async function handleUpload(fileList: FileList | null): Promise<void> {
     if (!session?.token || !fileList || fileList.length === 0) {
       return;
     }
@@ -385,7 +361,7 @@ export function AudioAutodjPanel(): JSX.Element {
     const files = Array.from(fileList);
 
     await runMutation(async () => {
-      await uploadAudioTracks(session.token, files, folderId);
+      await uploadAudioTracks(session.token, files, null);
     }, 'Tracks uploaded.');
   }
 
@@ -395,7 +371,7 @@ export function AudioAutodjPanel(): JSX.Element {
     }
 
     await runMutation(async () => {
-      await createAudioPlaylist(session.token, { name: playlistName.trim() });
+      await createAudioPlaylist(session.token, { name: playlistName.trim(), color: pickRandomPlaylistColor() });
       setPlaylistName('');
     }, 'Playlist created.');
   }
@@ -426,6 +402,18 @@ export function AudioAutodjPanel(): JSX.Element {
     }, 'Schedule saved.');
   }
 
+  function togglePlaylistCollapsed(id: string): void {
+    setCollapsedPlaylists((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
   async function handleToggleEnabled(): Promise<void> {
     if (!session?.token || !state) {
       return;
@@ -443,7 +431,6 @@ export function AudioAutodjPanel(): JSX.Element {
   }
 
   const tracks = state?.tracks ?? [];
-  const folders = state?.folders ?? [];
   const playlists = state?.playlists ?? [];
   const audioStreamingCount = session.streamings.filter((streaming) => streaming.type === 'audio').length;
   const scheduleCalendarBlocks = getScheduleCalendarBlocks(playlists);
@@ -464,7 +451,7 @@ export function AudioAutodjPanel(): JSX.Element {
       return true;
     }
 
-    return [track.originalFileName, track.mimeType, getTrackFolderName(track, folders)].some((value) =>
+    return [track.originalFileName, track.mimeType].some((value) =>
       value.toLowerCase().includes(searchTerm)
     );
   });
@@ -485,28 +472,53 @@ export function AudioAutodjPanel(): JSX.Element {
               onClick={(event) => event.stopPropagation()}
             >
               <header className="audio-schedule-modal-head">
-                <div>
-                  <span className="status-eyebrow">Schedules</span>
-                  <h3 id={`audio-schedule-modal-title-${scheduleModalPlaylist.id}`}>{scheduleModalPlaylist.name}</h3>
-                  <p>Use Monday to Sunday checkboxes and 24h times to define the active window.</p>
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className="audio-playlist-dot"
+                    style={{ backgroundColor: scheduleModalPlaylist.color, width: 12, height: 12 }}
+                  />
+                  <div>
+                    <span className="status-eyebrow">Gestionar playlist</span>
+                    <h3 id={`audio-schedule-modal-title-${scheduleModalPlaylist.id}`}>{scheduleModalPlaylist.name}</h3>
+                  </div>
                 </div>
                 <button type="button" className="ghost-button" onClick={() => setScheduleModalPlaylistId(null)}>
-                  Close
+                  Cerrar
                 </button>
               </header>
+
+              <div className="audio-schedule-color-picker">
+                <span className="status-eyebrow">Color</span>
+                <div className="audio-schedule-color-swatches">
+                  {PLAYLIST_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={`audio-color-swatch ${scheduleModalPlaylist.color === c ? 'audio-color-swatch--active' : ''}`}
+                      style={{ backgroundColor: c }}
+                      aria-label={`Color ${c}`}
+                      onClick={() =>
+                        void runMutation(
+                          async () => { await updateAudioPlaylist(session.token, scheduleModalPlaylist.id, { color: c }); },
+                          'Color actualizado.'
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
 
               <div className="audio-schedule-modal-body">
                 <div className="audio-schedule-modal-stack">
                   <section className="audio-schedule-panel">
                     <div>
-                      <span className="status-eyebrow">Create window</span>
-                      <h4 className="mt-2 text-lg font-semibold">New weekly schedule</h4>
-                      <p className="text-sm text-slate-300">Priority 1 takes over only inside this range.</p>
+                      <span className="status-eyebrow">Nueva ventana</span>
+                      <h4 className="mt-2 text-lg font-semibold">Agregar horario semanal</h4>
                     </div>
 
                     <div className="audio-schedule-field-stack">
                       <ScheduleDayGroup
-                        label="Start day"
+                        label="Desde — día"
                         value={scheduleModalDraft.startDay}
                         onChange={(nextValue) =>
                           setScheduleDrafts((currentValue) => ({
@@ -516,24 +528,8 @@ export function AudioAutodjPanel(): JSX.Element {
                         }
                       />
 
-                      <label className="audio-schedule-time-field">
-                        <span className="audio-schedule-group-label">Start time</span>
-                        <input
-                          type="time"
-                          step={60}
-                          value={scheduleModalDraft.startTime}
-                          onChange={(event) =>
-                            setScheduleDrafts((currentValue) => ({
-                              ...currentValue,
-                              [scheduleModalPlaylist.id]: { ...scheduleModalDraft, startTime: event.target.value },
-                            }))
-                          }
-                        />
-                        <p>Formato 24h, por ejemplo 23:30.</p>
-                      </label>
-
                       <ScheduleDayGroup
-                        label="End day"
+                        label="Hasta — día"
                         value={scheduleModalDraft.endDay}
                         onChange={(nextValue) =>
                           setScheduleDrafts((currentValue) => ({
@@ -544,9 +540,26 @@ export function AudioAutodjPanel(): JSX.Element {
                       />
 
                       <label className="audio-schedule-time-field">
-                        <span className="audio-schedule-group-label">End time</span>
+                        <span className="audio-schedule-group-label">Desde — hora</span>
                         <input
                           type="time"
+                          lang="es"
+                          step={60}
+                          value={scheduleModalDraft.startTime}
+                          onChange={(event) =>
+                            setScheduleDrafts((currentValue) => ({
+                              ...currentValue,
+                              [scheduleModalPlaylist.id]: { ...scheduleModalDraft, startTime: event.target.value },
+                            }))
+                          }
+                        />
+                      </label>
+
+                      <label className="audio-schedule-time-field">
+                        <span className="audio-schedule-group-label">Hasta — hora</span>
+                        <input
+                          type="time"
+                          lang="es"
                           step={60}
                           value={scheduleModalDraft.endTime}
                           onChange={(event) =>
@@ -556,20 +569,19 @@ export function AudioAutodjPanel(): JSX.Element {
                             }))
                           }
                         />
-                        <p>Formato 24h, por ejemplo 23:30.</p>
                       </label>
                     </div>
 
                     <button type="button" disabled={isBusy} onClick={() => void handleCreateSchedule(scheduleModalPlaylist.id)}>
-                      Add schedule
+                      Agregar horario
                     </button>
                   </section>
 
                   <section className="audio-schedule-panel">
                     <div>
-                      <span className="status-eyebrow">Current windows</span>
-                      <h4 className="mt-2 text-lg font-semibold">Active schedule list</h4>
-                      <p className="text-sm text-slate-300">Remove any window that should stop controlling the playlist.</p>
+                      <span className="status-eyebrow">Horarios activos</span>
+                      <h4 className="mt-2 text-lg font-semibold">{scheduleModalPlaylist.schedules.length} ventana(s)</h4>
+                      <p className="text-sm text-slate-300">Elimina cualquier ventana que ya no deba controlar esta playlist.</p>
                     </div>
 
                     <div className="audio-schedule-list">
@@ -578,9 +590,8 @@ export function AudioAutodjPanel(): JSX.Element {
                           <div key={schedule.id} className="audio-schedule-item">
                             <div>
                               <strong>
-                                {formatMinuteOfWeek(schedule.startMinuteOfWeek)} to {formatMinuteOfWeek(schedule.endMinuteOfWeek)}
+                                {formatMinuteOfWeek(schedule.startMinuteOfWeek)} → {formatMinuteOfWeek(schedule.endMinuteOfWeek)}
                               </strong>
-                              <p>Priority 1 takes over only inside this window.</p>
                             </div>
                             <button
                               type="button"
@@ -590,18 +601,18 @@ export function AudioAutodjPanel(): JSX.Element {
                                   async () => {
                                     await deleteAudioPlaylistSchedule(session.token, scheduleModalPlaylist.id, schedule.id);
                                   },
-                                  'Schedule removed.'
+                                  'Horario eliminado.'
                                 )
                               }
                             >
-                              Delete
+                              Eliminar
                             </button>
                           </div>
                         ))
                       ) : (
                         <article className="audio-track-empty">
-                          <strong>No custom schedule yet.</strong>
-                          <p>Create the first weekly window in the form above.</p>
+                          <strong>Sin horarios todavía.</strong>
+                          <p>Agrega la primera ventana semanal con el formulario al lado.</p>
                         </article>
                       )}
                     </div>
@@ -617,394 +628,394 @@ export function AudioAutodjPanel(): JSX.Element {
   return (
     <>
       <section className="grid gap-6">
-        <article className="status-card audio-autodj-hero grid gap-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <span className="status-eyebrow">AutoDJ state</span>
-            <h2>{autodjIsEnabled ? 'AutoDJ is on' : 'AutoDJ is off'}</h2>
-            <p>{statusMessage}</p>
-          </div>
+        <article className="audio-autodj-hero">
+          <div className="audio-autodj-hero-top">
+            <div className="audio-autodj-hero-identity">
+              <span className={`audio-autodj-state-dot ${autodjIsEnabled ? 'audio-autodj-state-dot--on' : ''}`} />
+              <div>
+                <span className="status-eyebrow">AutoDJ</span>
+                <h2 className="audio-autodj-hero-title">{autodjIsEnabled ? 'Activo' : 'Inactivo'}</h2>
+              </div>
+            </div>
 
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-slate-300">AutoDJ</span>
             <button
               type="button"
               role="switch"
               aria-checked={autodjIsEnabled}
-              aria-label={autodjIsEnabled ? 'Turn AutoDJ off' : 'Turn AutoDJ on'}
+              aria-label={autodjIsEnabled ? 'Desactivar AutoDJ' : 'Activar AutoDJ'}
               disabled={isBusy || !state}
               onClick={() => void handleToggleEnabled()}
-              className="h-7 w-12 border border-white/15 bg-slate-900/60 p-0 shadow-none"
+              className="audio-autodj-switch"
             >
-              <span
-                className={`flex h-full w-full items-center ${autodjIsEnabled ? 'justify-end' : 'justify-start'} px-1`}
-                aria-hidden="true"
-              >
-                <span
-                  className={`h-5 w-5 rounded-full ${
-                    autodjIsEnabled ? 'bg-emerald-300' : 'bg-slate-300'
-                  }`}
-                />
-              </span>
+              <span className={`audio-autodj-switch-thumb ${autodjIsEnabled ? 'audio-autodj-switch-thumb--on' : ''}`} />
             </button>
-            <span className="text-sm text-slate-300">{autodjIsEnabled ? 'On' : 'Off'}</span>
           </div>
-        </div>
 
-        <p className="mt-4 text-sm text-slate-300">
-          {autodjIsEnabled
-            ? `Live audio still wins first. If there is no live source, scheduled custom playlists or the default 24/7 playlist take over across ${audioStreamingCount} audio signal(s).`
-            : 'AutoDJ is disabled. If live goes down, this company stays silent and waits for the client source from BUTT or another encoder.'}
-        </p>
-        {errorMessage ? <p className="mt-3 text-red-300">{errorMessage}</p> : null}
+          <p className="audio-autodj-hero-desc">
+            {autodjIsEnabled
+              ? `Sin señal en vivo, los horarios o la playlist 24/7 cubren las ${audioStreamingCount} señal(es) de audio.`
+              : 'Sin señal en vivo las emisiones quedan en silencio esperando al encoder.'}
+          </p>
 
-        <div className="audio-autodj-metrics">
-          <div className="audio-autodj-metric">
-            <strong>{tracks.length}</strong>
-            <span>tracks uploaded</span>
-          </div>
-          <div className="audio-autodj-metric">
-            <strong>{folders.length}</strong>
-            <span>folders ready</span>
-          </div>
-          <div className="audio-autodj-metric">
-            <strong>{playlists.length}</strong>
-            <span>playlists</span>
-          </div>
-          <div className="audio-autodj-metric">
-            <strong>{audioStreamingCount}</strong>
-            <span>audio signals</span>
-          </div>
-        </div>
-      </article>
+          {errorMessage ? <p className="audio-autodj-error">{errorMessage}</p> : null}
 
-      <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <article className="status-card audio-library-card grid gap-5">
-          <div className="section-heading">
-            <div>
-              <span className="status-eyebrow">Library</span>
-              <h2>{tracks.length}</h2>
+          <div className="audio-autodj-metrics">
+            <div className="audio-autodj-metric">
+              <strong>{tracks.length}</strong>
+              <span>tracks</span>
             </div>
-            <p>Upload audio, search by name, codec, or folder, and drag tracks into folders or playlists.</p>
-          </div>
-
-          <div className="audio-library-toolbar">
-            <label className="audio-search-card">
-              <span className="status-eyebrow">Search music</span>
-              <input
-                type="search"
-                value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
-                placeholder="Search by file, format, or folder"
-              />
-              <div className="audio-search-status">
-                <p>
-                  {searchText
-                    ? isSearchPending
-                      ? 'Applying the filter after a 2 second pause.'
-                      : `${visibleTracks.length} result(s) from ${tracks.length} track(s).`
-                    : 'The search waits 2 seconds after you stop typing.'}
-                </p>
-                {searchText ? (
-                  <span className="audio-track-badge">{isSearchPending ? 'Debouncing' : 'Ready'}</span>
-                ) : null}
-              </div>
-            </label>
-
-            <label className="audio-upload-card">
-              <span className="status-eyebrow">Upload audio files</span>
-              <input
-                type="file"
-                accept="audio/*"
-                multiple
-                onChange={(event) => void handleUpload(event.target.files)}
-              />
-              <p>Drop music here and keep it in this company library for playlists and folder drops.</p>
-            </label>
-          </div>
-
-          <div className="grid gap-3">
-            <div
-              className="audio-folder-card audio-folder-card--root"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-                const trackId = getDraggedTrackId(event);
-                if (trackId) {
-                  void moveTrackToFolder(trackId, null);
-                }
-              }}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <span className="status-eyebrow">Root</span>
-                  <h3 className="mt-2 text-xl font-semibold">Unsorted library</h3>
-                  <p className="text-sm text-slate-300">Drop a track here to move it out of any folder.</p>
-                </div>
-                {selectedTrackId ? (
-                  <button type="button" className="ghost-button" onClick={() => void moveTrackToFolder(selectedTrackId, null)}>
-                    Move selected here
-                  </button>
-                ) : null}
-              </div>
+            <div className="audio-autodj-metric">
+              <strong>{playlists.length}</strong>
+              <span>playlists</span>
             </div>
-
-            {folders.length > 0 ? (
-              <div className="audio-folder-grid">
-                {folders.map((folder) => {
-                  const trackCount = tracks.filter((track) => track.folderId === folder.id).length;
-
-                  return (
-                    <div
-                      key={folder.id}
-                      className="audio-folder-card"
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        const trackId = getDraggedTrackId(event);
-                        if (trackId) {
-                          void moveTrackToFolder(trackId, folder.id);
-                        }
-                      }}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <span className="status-eyebrow">Folder</span>
-                          <h3 className="mt-2 text-xl font-semibold">{folder.name}</h3>
-                          <p className="text-sm text-slate-300">{trackCount} track(s)</p>
-                        </div>
-                        <div className="grid gap-2">
-                          {selectedTrackId ? (
-                            <button type="button" className="ghost-button" onClick={() => void moveTrackToFolder(selectedTrackId, folder.id)}>
-                              Move selected here
-                            </button>
-                          ) : null}
-                          <button type="button" className="ghost-button" onClick={() => void runMutation(() => deleteAudioFolder(session.token, folder.id), 'Folder removed.')}>
-                            Delete folder
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-
-            <div className="audio-track-grid">
-              {visibleTracks.length > 0 ? (
-                visibleTracks.map((track) => {
-                  const folderName = getTrackFolderName(track, folders);
-
-                  return (
-                    <article
-                      key={track.id}
-                      className={`audio-track-card ${selectedTrackId === track.id ? 'audio-track-card--selected' : ''}`}
-                      role="button"
-                      tabIndex={0}
-                      aria-pressed={selectedTrackId === track.id}
-                      aria-label={`Select ${track.originalFileName}`}
-                      draggable
-                      onClick={() => setSelectedTrackId(track.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          setSelectedTrackId(track.id);
-                        }
-                      }}
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData('text/plain', track.id);
-                        setSelectedTrackId(track.id);
-                      }}
-                    >
-                      <div className="audio-track-card__head">
-                        <div className="audio-track-card__title">
-                          <span className="status-eyebrow">Track</span>
-                          <h3>{track.originalFileName}</h3>
-                          <p>
-                            {track.mimeType || 'audio'} · {formatBytes(track.sizeBytes)}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          className="ghost-button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void runMutation(() => deleteAudioTrack(session.token, track.id), 'Track removed.');
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-
-                      <div className="audio-track-badges">
-                        <span className="audio-track-badge">Folder: {folderName}</span>
-                        <span className="audio-track-badge">
-                          {selectedTrackId === track.id ? 'Selected' : 'Drag to folder or playlist'}
-                        </span>
-                      </div>
-                    </article>
-                  );
-                })
-              ) : (
-                <article className="audio-track-empty">
-                  <strong>{searchTerm ? 'No matches yet.' : 'No tracks uploaded yet.'}</strong>
-                  <p>
-                    {searchTerm
-                      ? isSearchPending
-                        ? 'Wait for the 2 second debounce to finish.'
-                        : 'Try a different file name, folder, or codec.'
-                      : 'Upload music to start building the library.'}
-                  </p>
-                </article>
-              )}
+            <div className="audio-autodj-metric">
+              <strong>{audioStreamingCount}</strong>
+              <span>señales</span>
             </div>
           </div>
         </article>
 
-        <article className="status-card grid gap-4">
-          <div className="section-heading">
-            <div>
-              <span className="status-eyebrow">Playlists</span>
-              <h2>{playlists.length}</h2>
+      <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+        <article className="status-card audio-library-card">
+          <div className="audio-library-header">
+            <div className="audio-library-header__left">
+              <span className="audio-library-header__label">Biblioteca</span>
+              <span className="audio-library-header__count">{tracks.length} tracks</span>
             </div>
-            <p>Playlists live here. Default is priority 2; custom playlists win with priority 1 only inside their schedules.</p>
+            <p className="audio-library-header__desc">Arrastra tracks a las playlists o usa el buscador.</p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-            <label className="grid gap-2 text-sm text-slate-300">
-              <span>Create custom playlist</span>
+          <label className="audio-upload-zone">
+            <span className="audio-upload-zone__label">Subir archivos de audio</span>
+            <span className="audio-upload-zone__hint">MP3, WAV, FLAC, OGG — múltiples a la vez</span>
+            <input
+              type="file"
+              accept="audio/*"
+              multiple
+              onChange={(event) => void handleUpload(event.target.files)}
+            />
+          </label>
+
+          <label className="audio-search-card">
+            <div className="audio-search-inner">
+              <svg className="audio-search-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.6" />
+                <path d="M13 13l3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
               <input
-                className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white"
+                type="search"
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="Buscar por nombre o formato…"
+              />
+              {searchText ? (
+                <span className="audio-search-count">
+                  {isSearchPending ? '…' : `${visibleTracks.length} / ${tracks.length}`}
+                </span>
+              ) : null}
+            </div>
+          </label>
+
+          <div className="audio-track-grid">
+            {visibleTracks.length > 0 ? (
+              visibleTracks.map((track) => (
+                <article
+                  key={track.id}
+                  className={`audio-track-card ${selectedTrackId === track.id ? 'audio-track-card--selected' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedTrackId === track.id}
+                  aria-label={`Seleccionar ${track.originalFileName}`}
+                  draggable
+                  onClick={() => setSelectedTrackId(track.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setSelectedTrackId(track.id);
+                    }
+                  }}
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData('text/plain', track.id);
+                    setSelectedTrackId(track.id);
+                  }}
+                >
+                  <div className="audio-track-card__info">
+                    <span className="audio-track-card__name">{track.originalFileName}</span>
+                    <span className="audio-track-card__meta">{track.mimeType || 'audio'} · {formatBytes(track.sizeBytes)}</span>
+                  </div>
+                  <div className="audio-track-card__actions">
+                    {selectedTrackId === track.id ? (
+                      <span className="audio-track-badge audio-track-badge--selected">Seleccionado</span>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="ghost-button audio-track-delete"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void runMutation(() => deleteAudioTrack(session.token, track.id), 'Track eliminado.');
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <article className="audio-track-empty">
+                <strong>{searchTerm ? 'Sin resultados.' : 'Sin tracks subidos todavía.'}</strong>
+                <p>
+                  {searchTerm
+                    ? 'Prueba con otro nombre o formato.'
+                    : 'Sube música para comenzar a armar la biblioteca.'}
+                </p>
+              </article>
+            )}
+          </div>
+        </article>
+
+        <article className="status-card grid gap-3">
+          <div className="audio-playlists-section-head">
+            <span className="text-sm font-semibold text-white">Playlists</span>
+            <form
+              className="audio-playlist-create-row"
+              onSubmit={(e) => { e.preventDefault(); void handleCreatePlaylist(); }}
+            >
+              <input
+                className="audio-playlist-create-input"
                 value={playlistName}
                 onChange={(event) => setPlaylistName(event.target.value)}
-                placeholder="Lunch special"
+                placeholder="Nueva playlist…"
               />
-            </label>
-            <button type="button" disabled={isBusy || !playlistName.trim()} onClick={() => void handleCreatePlaylist()}>
-              Add playlist
-            </button>
+              <button
+                type="submit"
+                className="audio-playlist-create-btn"
+                disabled={isBusy || !playlistName.trim()}
+              >
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                </svg>
+                Crear
+              </button>
+            </form>
           </div>
 
-          {defaultPlaylist ? (
-            <div
-              className="rounded-3xl border border-white/10 bg-slate-950/40 p-4"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-                const trackId = getDraggedTrackId(event);
-                if (trackId) {
-                  void appendTrackToPlaylist(trackId, defaultPlaylist);
-                }
-              }}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <span className="status-eyebrow">Priority {defaultPlaylist.priority}</span>
-                  <h3 className="mt-2 text-xl font-semibold">{defaultPlaylist.name}</h3>
-                  <p className="text-sm text-slate-300">24/7 fallback. Used when AutoDJ is on, there is no live source, and no custom schedule is active.</p>
-                </div>
-                {selectedTrackId ? (
-                  <button type="button" className="ghost-button" onClick={() => void appendTrackToPlaylist(selectedTrackId, defaultPlaylist)}>
-                    Add selected track
-                  </button>
-                ) : null}
-              </div>
-              <div className="mt-4 grid gap-2">
-                {defaultPlaylist.items.length > 0 ? (
-                  defaultPlaylist.items.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-3">
-                      <div>
-                        <strong>{item.track.originalFileName}</strong>
-                        <p className="text-sm text-slate-300">{formatBytes(item.track.sizeBytes)}</p>
-                      </div>
-                      <button type="button" className="ghost-button" onClick={() => void removeTrackFromPlaylist(item.trackId, defaultPlaylist)}>
-                        Remove
+          <div className="audio-playlists-scroll-zone">
+            {defaultPlaylist ? (() => {
+              const color = defaultPlaylist.color;
+              const isCollapsed = collapsedPlaylists.has(defaultPlaylist.id);
+              return (
+                <div
+                  className="audio-playlist-card"
+                  style={{ borderLeftColor: color }}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const trackId = getDraggedTrackId(event);
+                    if (trackId) void appendTrackToPlaylist(trackId, defaultPlaylist);
+                  }}
+                >
+                  <div className="audio-playlist-card-header">
+                    <span className="audio-playlist-dot" style={{ backgroundColor: color }} />
+                    <div className="min-w-0 flex-1">
+                      <p className="audio-playlist-name">
+                        {defaultPlaylist.name}
+                        <span className="audio-playlist-priority">· 24/7</span>
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {isCollapsed && defaultPlaylist.items.length > 0 && (
+                        <span className="audio-playlist-badge">{defaultPlaylist.items.length}</span>
+                      )}
+                      {selectedTrackId && !isCollapsed ? (
+                        <button type="button" className="ghost-button text-xs" onClick={() => void appendTrackToPlaylist(selectedTrackId, defaultPlaylist)}>
+                          + Agregar
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="audio-playlist-toggle"
+                        aria-expanded={!isCollapsed}
+                        onClick={() => togglePlaylistCollapsed(defaultPlaylist.id)}
+                      >
+                        <svg
+                          className={`audio-playlist-chevron ${isCollapsed ? '' : 'audio-playlist-chevron--open'}`}
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          aria-hidden="true"
+                        >
+                          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
                       </button>
                     </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-slate-300">Drop tracks here to build the default rotation.</p>
-                )}
-              </div>
-            </div>
-          ) : null}
+                  </div>
 
-          <div className="grid gap-4">
-            {customPlaylists.length > 0 ? (
-              customPlaylists.map((playlist) => {
-                return (
-                  <div
-                    key={playlist.id}
-                    className="rounded-3xl border border-white/10 bg-slate-950/40 p-4"
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      const trackId = getDraggedTrackId(event);
-                      if (trackId) {
-                        void appendTrackToPlaylist(trackId, playlist);
-                      }
-                    }}
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <span className="status-eyebrow">Priority {playlist.priority}</span>
-                        <h3 className="mt-2 text-xl font-semibold">{playlist.name}</h3>
-                        <p className="text-sm text-slate-300">Wins over the default playlist while one of its schedules is active and AutoDJ is on.</p>
-                      </div>
-                      <div className="grid gap-2">
-                        {selectedTrackId ? (
-                          <button type="button" className="ghost-button" onClick={() => void appendTrackToPlaylist(selectedTrackId, playlist)}>
-                            Add selected track
-                          </button>
-                        ) : null}
-                        <button type="button" className="ghost-button" onClick={() => void runMutation(() => deleteAudioPlaylist(session.token, playlist.id), 'Playlist removed.')}>
-                          Delete playlist
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid gap-2">
-                      {playlist.items.length > 0 ? (
-                        playlist.items.map((item) => (
-                          <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-3">
-                            <div>
-                              <strong>{item.track.originalFileName}</strong>
-                              <p className="text-sm text-slate-300">{formatBytes(item.track.sizeBytes)}</p>
+                  {!isCollapsed && (
+                    <div className="audio-playlist-body">
+                      {defaultPlaylist.items.length > 0 ? (
+                        defaultPlaylist.items.map((item) => (
+                          <div key={item.id} className="audio-playlist-track">
+                            <div className="min-w-0">
+                              <span className="audio-playlist-track-name">{item.track.originalFileName}</span>
+                              <span className="audio-playlist-track-meta">{formatBytes(item.track.sizeBytes)}</span>
                             </div>
-                            <button type="button" className="ghost-button" onClick={() => void removeTrackFromPlaylist(item.trackId, playlist)}>
-                              Remove
+                            <button
+                              type="button"
+                              className="audio-playlist-track-remove"
+                              title="Quitar de la playlist"
+                              onClick={() => void removeTrackFromPlaylist(item.trackId, defaultPlaylist)}
+                            >
+                              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                              </svg>
                             </button>
                           </div>
                         ))
                       ) : (
-                        <p className="text-sm text-slate-300">Drop tracks here to build this scheduled playlist.</p>
+                        <p className="text-xs text-slate-400 py-1">Arrastra tracks aquí para armar la rotación.</p>
                       )}
                     </div>
+                  )}
+                </div>
+              );
+            })() : null}
 
-                    <div className="mt-5 grid gap-3 rounded-3xl border border-white/10 bg-slate-900/40 p-4">
-                      <div>
-                        <span className="status-eyebrow">Schedules</span>
-                        <h4 className="mt-2 text-lg font-semibold">Weekly windows</h4>
-                        <p className="text-sm text-slate-300">
-                          {playlist.schedules.length > 0
-                            ? `${playlist.schedules.length} window(s) configured.`
-                            : 'No custom schedule yet.'}
+            {customPlaylists.length > 0 ? (
+              customPlaylists.map((playlist) => {
+                const color = playlist.color;
+                const isCollapsed = collapsedPlaylists.has(playlist.id);
+                return (
+                  <div
+                    key={playlist.id}
+                    className="audio-playlist-card"
+                    style={{ borderLeftColor: color }}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const trackId = getDraggedTrackId(event);
+                      if (trackId) void appendTrackToPlaylist(trackId, playlist);
+                    }}
+                  >
+                    <div className="audio-playlist-card-header">
+                      <span className="audio-playlist-dot" style={{ backgroundColor: color }} />
+                      <div className="min-w-0 flex-1">
+                        <p className="audio-playlist-name">
+                          {playlist.name}
+                          <span className="audio-playlist-priority">· P{playlist.priority}</span>
                         </p>
                       </div>
-                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-slate-950/40 p-4">
-                        <div>
-                          <p className="text-sm text-slate-300">Manage the weekly windows for this playlist in a modal.</p>
-                          <strong className="block mt-1 text-white">{playlist.schedules.length} schedule(s)</strong>
-                        </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {isCollapsed && (
+                          <>
+                            {playlist.items.length > 0 && (
+                              <span className="audio-playlist-badge">{playlist.items.length} tracks</span>
+                            )}
+                            {playlist.schedules.length > 0 && (
+                              <span className="audio-playlist-badge" style={{ color, borderColor: `${color}40` }}>
+                                {playlist.schedules.length} horarios
+                              </span>
+                            )}
+                          </>
+                        )}
+                        {!isCollapsed && selectedTrackId ? (
+                          <button type="button" className="audio-playlist-icon-btn" title="Agregar track seleccionado" onClick={() => void appendTrackToPlaylist(selectedTrackId, playlist)}>
+                            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
+                          </button>
+                        ) : null}
+                        {!isCollapsed && (
+                          <>
+                            <button
+                              type="button"
+                              className="audio-playlist-icon-btn"
+                              title="Gestionar horarios"
+                              onClick={() => setScheduleModalPlaylistId(playlist.id)}
+                            >
+                              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.4"/><path d="M8 5v3l2 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
+                            </button>
+                            {deleteConfirmId === playlist.id ? (
+                              <div className="audio-playlist-confirm-delete">
+                                <span>¿Eliminar?</span>
+                                <button
+                                  type="button"
+                                  className="audio-playlist-confirm-yes"
+                                  disabled={isBusy}
+                                  onClick={() => {
+                                    setDeleteConfirmId(null);
+                                    void runMutation(() => deleteAudioPlaylist(session.token, playlist.id), 'Playlist eliminada.');
+                                  }}
+                                >
+                                  Sí
+                                </button>
+                                <button type="button" className="audio-playlist-confirm-no" onClick={() => setDeleteConfirmId(null)}>
+                                  No
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                className="audio-playlist-icon-btn audio-playlist-icon-btn--danger"
+                                title="Eliminar playlist"
+                                onClick={() => setDeleteConfirmId(playlist.id)}
+                              >
+                                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 4h10M6 4V2.5h4V4M6.5 7v5M9.5 7v5M4.5 4l.5 9h6l.5-9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                              </button>
+                            )}
+                          </>
+                        )}
                         <button
                           type="button"
-                          className="ghost-button"
-                          onClick={() => setScheduleModalPlaylistId(playlist.id)}
+                          className="audio-playlist-toggle"
+                          aria-expanded={!isCollapsed}
+                          onClick={() => togglePlaylistCollapsed(playlist.id)}
                         >
-                          Manage schedules
+                          <svg
+                            className={`audio-playlist-chevron ${isCollapsed ? '' : 'audio-playlist-chevron--open'}`}
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
                         </button>
                       </div>
                     </div>
+
+                    {!isCollapsed && (
+                      <>
+                        <div className="audio-playlist-body">
+                          {playlist.items.length > 0 ? (
+                            playlist.items.map((item) => (
+                              <div key={item.id} className="audio-playlist-track">
+                                <div className="min-w-0">
+                                  <span className="audio-playlist-track-name">{item.track.originalFileName}</span>
+                                  <span className="audio-playlist-track-meta">{formatBytes(item.track.sizeBytes)}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="audio-playlist-track-remove"
+                                  title="Quitar de la playlist"
+                                  onClick={() => void removeTrackFromPlaylist(item.trackId, playlist)}
+                                >
+                                  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                                  </svg>
+                                </button>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-xs text-slate-400 py-1">Arrastra tracks aquí para armar esta playlist.</p>
+                          )}
+                        </div>
+
+                        <div className="audio-playlist-schedule-row">
+                          <span className="audio-playlist-dot" style={{ backgroundColor: color }} />
+                          <span className="text-xs text-slate-300">
+                            {playlist.schedules.length > 0
+                              ? `${playlist.schedules.length} ventana(s) activa(s)`
+                              : 'Sin horarios configurados'}
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })

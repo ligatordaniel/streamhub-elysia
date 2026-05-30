@@ -38,6 +38,7 @@ export interface AudioPlaylist {
   id: string;
   name: string;
   kind: AudioPlaylistKind;
+  color: string;
   priority: number;
   items: AudioPlaylistItem[];
   schedules: AudioPlaylistSchedule[];
@@ -66,6 +67,12 @@ export interface UpdateAudioTrackPayload {
 
 export interface CreateAudioPlaylistPayload {
   name: string;
+  color: string;
+}
+
+export interface UpdateAudioPlaylistPayload {
+  name?: string;
+  color?: string;
 }
 
 export interface ReplaceAudioPlaylistItemsPayload {

@@ -73,6 +73,7 @@ export interface AudioPlaylist {
   id: string;
   name: string;
   kind: AudioPlaylistKind;
+  color: string;
   priority: number;
   items: AudioPlaylistItem[];
   schedules: AudioPlaylistSchedule[];

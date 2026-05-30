@@ -35,6 +35,7 @@ interface PlaylistRow {
   id: string;
   name: string;
   kind: 'default' | 'custom';
+  color: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -99,10 +100,12 @@ export interface UpdateAudioTrackInput {
 
 export interface CreateAudioPlaylistInput {
   name: string;
+  color: string;
 }
 
 export interface UpdateAudioPlaylistInput {
-  name: string;
+  name?: string;
+  color?: string;
 }
 
 export interface SaveAudioPlaylistScheduleInput {
@@ -179,6 +182,7 @@ const selectPlaylistsByCompanyIdSql = `
     id,
     name,
     kind,
+    color,
     created_at AS createdAt,
     updated_at AS updatedAt
   FROM company_audio_playlists
@@ -190,6 +194,7 @@ const selectPlaylistByIdSql = `
     id,
     name,
     kind,
+    color,
     created_at AS createdAt,
     updated_at AS updatedAt
   FROM company_audio_playlists
@@ -201,6 +206,7 @@ const selectDefaultPlaylistByCompanyIdSql = `
     id,
     name,
     kind,
+    color,
     created_at AS createdAt,
     updated_at AS updatedAt
   FROM company_audio_playlists
@@ -324,13 +330,14 @@ const insertPlaylistSql = `
     id,
     name,
     kind,
+    color,
     created_at,
     updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?)
 `;
 const updatePlaylistSql = `
   UPDATE company_audio_playlists
-  SET name = ?, updated_at = ?
+  SET name = ?, color = ?, updated_at = ?
   WHERE company_id = ? AND id = ?
 `;
 const deletePlaylistSql = `
@@ -589,6 +596,7 @@ function createPlaylistMap(
     id: playlistRow.id,
     name: playlistRow.name,
     kind: playlistRow.kind,
+    color: playlistRow.color,
     priority: playlistRow.kind === 'custom' ? 1 : 2,
     items: itemsByPlaylistId.get(playlistRow.id) ?? [],
     schedules: schedulesByPlaylistId.get(playlistRow.id) ?? [],
@@ -646,6 +654,7 @@ export function ensureDefaultAudioPlaylistForCompany(db: Database, companyId: st
       crypto.randomUUID(),
       DEFAULT_PLAYLIST_NAME,
       'default',
+      '#94a3b8',
       timestamp,
       timestamp
     );
@@ -680,6 +689,7 @@ export function findCompanyAudioAutodjState(db: Database, companyId: string): Co
       crypto.randomUUID(),
       DEFAULT_PLAYLIST_NAME,
       'default',
+      '#94a3b8',
       timestamp,
       timestamp
     );
@@ -829,7 +839,7 @@ export function createAudioPlaylist(
   const id = crypto.randomUUID();
   const timestamp = nowIso();
 
-  db.query(insertPlaylistSql).run(companyId, id, name, 'custom', timestamp, timestamp);
+  db.query(insertPlaylistSql).run(companyId, id, name, 'custom', input.color, timestamp, timestamp);
 
   const state = findCompanyAudioAutodjState(db, companyId);
   const playlist = state.playlists.find((item) => item.id === id);
@@ -847,19 +857,19 @@ export function updateAudioPlaylist(
   playlistId: string,
   input: UpdateAudioPlaylistInput
 ): AudioPlaylist {
-  const name = input.name.trim();
+  const playlist = ensurePlaylistExists(db, companyId, playlistId);
+  const name = input.name !== undefined ? input.name.trim() : playlist.name;
+  const color = input.color !== undefined ? input.color.trim() : playlist.color;
 
   if (!name) {
     throw new AudioAutodjValidationError('Playlist name is required.');
   }
 
-  const playlist = ensurePlaylistExists(db, companyId, playlistId);
-
   if (playlist.kind === 'default' && name !== playlist.name) {
     throw new AudioAutodjValidationError('Default playlist name cannot be changed.');
   }
 
-  db.query(updatePlaylistSql).run(name, nowIso(), companyId, playlistId);
+  db.query(updatePlaylistSql).run(name, color, nowIso(), companyId, playlistId);
 
   const state = findCompanyAudioAutodjState(db, companyId);
   const updatedPlaylist = state.playlists.find((item) => item.id === playlistId);

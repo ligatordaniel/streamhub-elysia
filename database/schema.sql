@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS company_audio_playlists (
   id TEXT NOT NULL,
   name TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('default', 'custom')),
+  color TEXT NOT NULL DEFAULT '#3b82f6',
   created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   PRIMARY KEY (company_id, id)
