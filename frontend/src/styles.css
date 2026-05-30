@@ -927,7 +927,7 @@ button:disabled {
   flex-direction: column;
   gap: 5px;
   padding: 1rem;
-  max-height: 600px;
+  align-self: stretch;
 }
 
 /* Compact header row */
@@ -1080,6 +1080,7 @@ button:disabled {
 
 .audio-track-grid {
   display: grid;
+  align-content: start;
   gap: 0.75rem;
   flex: 1 1 0;
   min-height: 0;
@@ -1107,12 +1108,14 @@ button:disabled {
   align-items: center;
   gap: 0.75rem;
   padding: 0.7rem 0.9rem;
+  height: 70px;
   border-radius: 14px;
   border: 1px solid rgba(148, 163, 184, 0.12);
   background: rgba(15, 23, 42, 0.6);
   cursor: pointer;
   text-align: left;
   transition: border-color 120ms, background 120ms;
+  box-sizing: border-box;
 }
 
 .audio-track-card:hover,
