@@ -1012,7 +1012,7 @@ export function AudioAutodjPanel(): JSX.Element {
               const isCollapsed = !expandedPlaylists.has(defaultPlaylist.id);
               return (
                 <div
-                  className="audio-playlist-card"
+                  className={`audio-playlist-card ${isCollapsed ? 'audio-playlist-card--collapsed' : ''}`}
                   style={{ borderLeftColor: color }}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={(event) => {
@@ -1096,7 +1096,7 @@ export function AudioAutodjPanel(): JSX.Element {
                 return (
                   <div
                     key={playlist.id}
-                    className="audio-playlist-card"
+                    className={`audio-playlist-card ${isCollapsed ? 'audio-playlist-card--collapsed' : ''}`}
                     style={{ borderLeftColor: color }}
                     onDragOver={(event) => event.preventDefault()}
                     onDrop={(event) => {

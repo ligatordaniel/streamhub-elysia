@@ -1011,6 +1011,7 @@ button:disabled {
   gap: 5px;
   padding: 1rem;
   align-self: stretch;
+  min-height: 550px;
 }
 
 /* Compact header row */
@@ -1359,8 +1360,9 @@ button:disabled {
 
 .audio-playlists-scroll-zone {
   display: grid;
+  align-content: start;
   gap: 0.75rem;
-  max-height: 600px;
+  height: 600px;
   overflow-y: auto;
   padding-right: 0.25rem;
   scrollbar-width: thin;
@@ -1387,6 +1389,11 @@ button:disabled {
   background: rgba(7, 12, 24, 0.5);
   padding: 0.625rem 0.75rem;
   transition: background 0.15s ease;
+}
+
+.audio-playlist-card--collapsed {
+  height: 75px;
+  overflow: hidden;
 }
 
 .audio-playlist-card:hover {
