@@ -1875,6 +1875,33 @@ button:disabled {
   flex-shrink: 0;
 }
 
+.audio-schedule-now-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #f0f 0%, #7dd3fc 100%);
+  box-shadow: 0 0 8px 2px rgba(240, 0, 255, 0.55), 0 0 16px 4px rgba(125, 211, 252, 0.3);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.audio-schedule-now-label {
+  position: absolute;
+  left: 0.3rem;
+  top: -0.95rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: linear-gradient(90deg, #c026d3, #3b82f6);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(192, 38, 211, 0.5);
+  line-height: 1.4;
+}
+
 .audio-schedule-slot {
   position: absolute;
   left: 0.5rem;

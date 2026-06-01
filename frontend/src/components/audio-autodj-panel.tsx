@@ -105,6 +105,27 @@ function pickRandomPlaylistColor(): string {
   return PLAYLIST_COLORS[Math.floor(Math.random() * PLAYLIST_COLORS.length)] ?? '#3b82f6';
 }
 
+const DAY_ABBR_MAP: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+const SANTIAGO_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Santiago',
+  weekday: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+function getNowSantiago(): { dayOfWeek: number; minuteOfDay: number; timeLabel: string } {
+  const parts = SANTIAGO_FORMATTER.formatToParts(new Date());
+  const day = parts.find((p) => p.type === 'weekday')?.value ?? 'Mon';
+  const hour = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10) % 24;
+  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10);
+  return {
+    dayOfWeek: DAY_ABBR_MAP[day] ?? 0,
+    minuteOfDay: hour * 60 + minute,
+    timeLabel: `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`,
+  };
+}
+
 function getScheduleSegments(schedule: AudioPlaylistSchedule): Array<{ dayIndex: number; startMinutes: number; endMinutes: number }> {
   const segments: Array<{ dayIndex: number; startMinutes: number; endMinutes: number }> = [];
   let cursor = schedule.startMinuteOfWeek;
@@ -234,6 +255,7 @@ export function AudioAutodjPanel(): JSX.Element {
   const [expandedPlaylists, setExpandedPlaylists] = useState<Set<string>>(new Set());
   const [deleteModalTarget, setDeleteModalTarget] = useState<DeleteModalTarget | null>(null);
   const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
+  const [nowSantiago, setNowSantiago] = useState(getNowSantiago);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const expandedHydratedRef = useRef(false);
 
@@ -241,6 +263,11 @@ export function AudioAutodjPanel(): JSX.Element {
     expandedHydratedRef.current = false;
     setExpandedPlaylists(new Set());
   }, [session?.company.id]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNowSantiago(getNowSantiago()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!session?.token) {
@@ -1328,6 +1355,15 @@ export function AudioAutodjPanel(): JSX.Element {
                       {Array.from({ length: 24 }).map((_, hour) => (
                         <div key={`${day.value}-${hour}`} className="audio-schedule-day-hour-line" />
                       ))}
+                      {day.value === nowSantiago.dayOfWeek && (
+                        <div
+                          className="audio-schedule-now-line"
+                          style={{ top: `${(nowSantiago.minuteOfDay / 1440) * 100}%` }}
+                          aria-label={`Hora actual Santiago: ${nowSantiago.timeLabel}`}
+                        >
+                          <span className="audio-schedule-now-label">{nowSantiago.timeLabel}</span>
+                        </div>
+                      )}
                       {scheduleCalendarBlocks
                         .filter((block) => block.dayIndex === day.value)
                         .map((block, blockIndex) => (
