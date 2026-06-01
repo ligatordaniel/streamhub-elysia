@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useAuth } from '../auth/auth-context';
+import { runtime } from '../config/runtime';
 import {
   createAudioPlaylist,
   createAudioPlaylistSchedule,
@@ -232,6 +233,8 @@ export function AudioAutodjPanel(): JSX.Element {
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
   const [expandedPlaylists, setExpandedPlaylists] = useState<Set<string>>(new Set());
   const [deleteModalTarget, setDeleteModalTarget] = useState<DeleteModalTarget | null>(null);
+  const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const expandedHydratedRef = useRef(false);
 
   useEffect(() => {
@@ -488,6 +491,45 @@ export function AudioAutodjPanel(): JSX.Element {
       if (prev.has(id)) return prev;
       return new Set([...prev, id]);
     });
+  }
+
+  function handlePreview(event: React.MouseEvent, trackId: string): void {
+    event.stopPropagation();
+
+    if (playingTrackId === trackId) {
+      previewAudioRef.current?.pause();
+      previewAudioRef.current = null;
+      setPlayingTrackId(null);
+      return;
+    }
+
+    previewAudioRef.current?.pause();
+    previewAudioRef.current = null;
+
+    if (!session?.token) return;
+
+    const token = session.token;
+    const baseUrl = runtime.apiUrl.replace(/\/$/, '');
+
+    setPlayingTrackId(trackId);
+
+    void (async () => {
+      try {
+        const response = await fetch(`${baseUrl}/audio/autodj/tracks/${trackId}/preview`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) { setPlayingTrackId(null); return; }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.onended = () => { setPlayingTrackId(null); URL.revokeObjectURL(url); };
+        audio.onerror = () => { setPlayingTrackId(null); URL.revokeObjectURL(url); };
+        previewAudioRef.current = audio;
+        void audio.play();
+      } catch {
+        setPlayingTrackId(null);
+      }
+    })();
   }
 
   async function handleToggleEnabled(): Promise<void> {
@@ -957,6 +999,14 @@ export function AudioAutodjPanel(): JSX.Element {
                     {selectedTrackId === track.id ? (
                       <span className="audio-track-badge audio-track-badge--selected">Seleccionado</span>
                     ) : null}
+                    <button
+                      type="button"
+                      className="ghost-button audio-track-preview"
+                      title={playingTrackId === track.id ? 'Detener preview' : 'Escuchar preview'}
+                      onClick={(event) => handlePreview(event, track.id)}
+                    >
+                      {playingTrackId === track.id ? '◼' : '▶'}
+                    </button>
                     <button
                       type="button"
                       className="ghost-button audio-track-delete"

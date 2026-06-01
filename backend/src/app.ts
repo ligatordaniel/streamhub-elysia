@@ -27,6 +27,7 @@ import {
   deleteAudioPlaylistSchedule,
   deleteAudioTrack,
   findCompanyAudioAutodjState,
+  getAudioTrackFileInfo,
   replaceAudioPlaylistItems,
   saveAudioTrack,
   updateCompanyAudioAutodjEnabled,
@@ -1023,6 +1024,45 @@ export function createApp({ env, db }: AppOptions) {
       } catch (error) {
         return handleAudioAutodjError(set, error);
       }
+    })
+    .get('/audio/autodj/tracks/:trackId/preview', async ({ request, query, params, set }) => {
+      const session = await resolveAuthenticatedSession(env, db, request);
+
+      if (!session) {
+        set.status = 401;
+        return { error: 'Unauthorized.' };
+      }
+
+      const trackId = parseUuid(params.trackId);
+      const requestedCompanyId = parseRequestedCompanyId((query as Record<string, unknown>).companyId);
+
+      if (!trackId) {
+        set.status = 400;
+        return { error: 'Valid track id is required.' };
+      }
+
+      const companyId = resolveAudioAutodjCompanyId(session, requestedCompanyId);
+
+      if (!companyId) {
+        set.status = 403;
+        return { error: 'Forbidden.' };
+      }
+
+      const info = getAudioTrackFileInfo(db, companyId, trackId);
+
+      if (!info) {
+        set.status = 404;
+        return { error: 'Track not found.' };
+      }
+
+      const file = Bun.file(info.absolutePath);
+
+      if (!(await file.exists())) {
+        set.status = 404;
+        return { error: 'Audio file not found on disk.' };
+      }
+
+      return file;
     })
     .post('/audio/autodj/playlists', async ({ request, query, body, set }) => {
       const session = await resolveAuthenticatedSession(env, db, request);

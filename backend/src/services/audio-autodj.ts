@@ -843,6 +843,16 @@ export function deleteAudioTrack(db: Database, companyId: string, trackId: strin
   deleteTrackFile(track.storagePath);
 }
 
+export function getAudioTrackFileInfo(
+  db: Database,
+  companyId: string,
+  trackId: string,
+): { absolutePath: string; mimeType: string } | null {
+  const row = db.query(selectTrackByIdSql).get(companyId, trackId) as TrackRow | null;
+  if (!row) return null;
+  return { absolutePath: resolve(getAudioLibraryRoot(), row.storagePath), mimeType: row.mimeType };
+}
+
 export function createAudioPlaylist(
   db: Database,
   companyId: string,

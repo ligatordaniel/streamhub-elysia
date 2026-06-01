@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const mode = process.argv[2] ?? 'json';
@@ -351,16 +351,31 @@ function writeCompanyAutodjFiles(streams) {
       writeFileSync(playlistFilePath, playlistContents ? `${playlistContents}\n` : '');
     }
 
-    const activeTracks = activePlaylist
-      ? activePlaylist.shuffleEnabled
-        ? shuffleArray(activePlaylist.tracks)
-        : activePlaylist.tracks
-      : [];
-    const activePlaylistLines = activeTracks.map((storagePath) => resolve(audioLibraryRoot, storagePath));
     const activePlaylistPath = resolve(companyDirectory, 'active.m3u');
     const activePlaylistMetaPath = resolve(companyDirectory, 'active.json');
 
-    writeFileSync(activePlaylistPath, activePlaylistLines.length > 0 ? `${activePlaylistLines.join('\n')}\n` : '');
+    const activeFullPaths = (activePlaylist?.tracks ?? []).map((storagePath) => resolve(audioLibraryRoot, storagePath));
+
+    let activePlaylistLines;
+    if (activePlaylist?.shuffleEnabled && activeFullPaths.length > 0) {
+      let existingPaths = [];
+      try {
+        const existing = readFileSync(activePlaylistPath, 'utf-8').trim();
+        existingPaths = existing ? existing.split('\n').map((l) => l.trim()).filter(Boolean) : [];
+      } catch {}
+      const activeSorted = [...activeFullPaths].sort().join('\n');
+      const existingSorted = [...existingPaths].sort().join('\n');
+      activePlaylistLines = activeSorted === existingSorted ? existingPaths : shuffleArray(activeFullPaths);
+    } else {
+      activePlaylistLines = activeFullPaths;
+    }
+
+    const newM3uContent = activePlaylistLines.length > 0 ? `${activePlaylistLines.join('\n')}\n` : '';
+    let currentM3uContent = '';
+    try { currentM3uContent = readFileSync(activePlaylistPath, 'utf-8'); } catch {}
+    if (newM3uContent !== currentM3uContent) {
+      writeFileSync(activePlaylistPath, newM3uContent);
+    }
     writeFileSync(
       activePlaylistMetaPath,
       `${JSON.stringify(
@@ -419,7 +434,7 @@ function renderLiquidsoap(streams) {
     companySourceNames.set(companyId, sourceName);
     lines.push(`${sourceName} = playlist(`);
     lines.push('  reload_mode="watch",');
-    lines.push('  mode="normal",');
+    lines.push('  mode="loop",');
     lines.push(`  "${escapedActivePlaylistPath}"`);
     lines.push(')');
     lines.push('');
