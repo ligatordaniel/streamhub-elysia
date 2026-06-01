@@ -483,6 +483,13 @@ export function AudioAutodjPanel(): JSX.Element {
     });
   }
 
+  function expandPlaylist(id: string): void {
+    setExpandedPlaylists((prev) => {
+      if (prev.has(id)) return prev;
+      return new Set([...prev, id]);
+    });
+  }
+
   async function handleToggleEnabled(): Promise<void> {
     if (!session?.token || !state) {
       return;
@@ -1018,7 +1025,10 @@ export function AudioAutodjPanel(): JSX.Element {
                   onDrop={(event) => {
                     event.preventDefault();
                     const trackId = getDraggedTrackId(event);
-                    if (trackId) void appendTrackToPlaylist(trackId, defaultPlaylist);
+                    if (trackId) {
+                      expandPlaylist(defaultPlaylist.id);
+                      void appendTrackToPlaylist(trackId, defaultPlaylist);
+                    }
                   }}
                 >
                   <div className="audio-playlist-card-header">
@@ -1102,7 +1112,10 @@ export function AudioAutodjPanel(): JSX.Element {
                     onDrop={(event) => {
                       event.preventDefault();
                       const trackId = getDraggedTrackId(event);
-                      if (trackId) void appendTrackToPlaylist(trackId, playlist);
+                      if (trackId) {
+                        expandPlaylist(playlist.id);
+                        void appendTrackToPlaylist(trackId, playlist);
+                      }
                     }}
                   >
                     <div className="audio-playlist-card-header">
