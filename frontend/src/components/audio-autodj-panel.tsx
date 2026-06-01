@@ -328,10 +328,7 @@ export function AudioAutodjPanel(): JSX.Element {
     }
 
     const trackIds = playlist.items.map((item) => item.trackId);
-
-    if (!trackIds.includes(trackId)) {
-      trackIds.push(trackId);
-    }
+    trackIds.push(trackId);
 
     await runMutation(async () => {
       await replaceAudioPlaylistItems(session.token, playlist.id, { trackIds });
@@ -339,13 +336,13 @@ export function AudioAutodjPanel(): JSX.Element {
     }, 'Playlist updated.');
   }
 
-  async function removeTrackFromPlaylist(trackId: string, playlist: AudioPlaylist): Promise<void> {
+  async function removeTrackFromPlaylist(itemId: string, playlist: AudioPlaylist): Promise<void> {
     if (!session?.token) {
       return;
     }
 
     const nextTrackIds = playlist.items
-      .filter((item) => item.trackId !== trackId)
+      .filter((item) => item.id !== itemId)
       .map((item) => item.trackId);
 
     await runMutation(async () => {
@@ -862,7 +859,7 @@ export function AudioAutodjPanel(): JSX.Element {
                               type="button"
                               className="audio-playlist-track-remove"
                               title="Quitar de la playlist"
-                              onClick={() => void removeTrackFromPlaylist(item.trackId, defaultPlaylist)}
+                              onClick={() => void removeTrackFromPlaylist(item.id, defaultPlaylist)}
                             >
                               <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
                                 <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
@@ -993,7 +990,7 @@ export function AudioAutodjPanel(): JSX.Element {
                                   type="button"
                                   className="audio-playlist-track-remove"
                                   title="Quitar de la playlist"
-                                  onClick={() => void removeTrackFromPlaylist(item.trackId, playlist)}
+                                  onClick={() => void removeTrackFromPlaylist(item.id, playlist)}
                                 >
                                   <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
                                     <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
