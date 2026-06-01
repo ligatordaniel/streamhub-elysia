@@ -131,6 +131,8 @@ interface CreateAudioPlaylistRequest {
 interface UpdateAudioPlaylistRequest {
   name?: string;
   color?: string;
+  shuffleEnabled?: boolean;
+  isActive?: boolean;
 }
 
 interface ReplaceAudioPlaylistItemsRequest {
@@ -315,14 +317,24 @@ function parseUpdateAudioPlaylistRequest(body: unknown): UpdateAudioPlaylistRequ
   const record = body as Record<string, unknown>;
   const name = 'name' in record ? parseNonEmptyString(record.name) ?? undefined : undefined;
   const color = 'color' in record ? parseHexColor(record.color) ?? undefined : undefined;
+  const shuffleEnabled =
+    'shuffleEnabled' in record && typeof record.shuffleEnabled === 'boolean'
+      ? record.shuffleEnabled
+      : undefined;
+  const isActive =
+    'isActive' in record && typeof record.isActive === 'boolean'
+      ? record.isActive
+      : undefined;
 
-  if (name === undefined && color === undefined) {
+  if (name === undefined && color === undefined && shuffleEnabled === undefined && isActive === undefined) {
     return null;
   }
 
   const result: UpdateAudioPlaylistRequest = {};
   if (name !== undefined) result.name = name;
   if (color !== undefined) result.color = color;
+  if (shuffleEnabled !== undefined) result.shuffleEnabled = shuffleEnabled;
+  if (isActive !== undefined) result.isActive = isActive;
   return result;
 }
 

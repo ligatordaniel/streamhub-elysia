@@ -1,4 +1,4 @@
-import { useEffect, useState, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useAuth } from '../auth/auth-context';
@@ -58,6 +58,18 @@ type ScheduleCalendarBlock = {
   endMinutes: number;
 };
 
+type DeleteModalTarget =
+  | {
+      kind: 'track';
+      id: string;
+      label: string;
+    }
+  | {
+      kind: 'playlist';
+      id: string;
+      label: string;
+    };
+
 const weekDayColumns: Array<{ value: number; label: string }> = [
   { value: 1, label: 'Lun' },
   { value: 2, label: 'Mar' },
@@ -82,6 +94,11 @@ const PLAYLIST_COLORS = [
   '#ec4899', // rosa
   '#f43f5e', // rosa-rojo
 ];
+const EXPANDED_PLAYLISTS_STORAGE_PREFIX = 'audioAutodjExpandedPlaylists:';
+
+function getExpandedPlaylistsStorageKey(companyId: string): string {
+  return `${EXPANDED_PLAYLISTS_STORAGE_PREFIX}${companyId}`;
+}
 
 function pickRandomPlaylistColor(): string {
   return PLAYLIST_COLORS[Math.floor(Math.random() * PLAYLIST_COLORS.length)] ?? '#3b82f6';
@@ -213,8 +230,14 @@ export function AudioAutodjPanel(): JSX.Element {
   const [scheduleModalPlaylistId, setScheduleModalPlaylistId] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
-  const [collapsedPlaylists, setCollapsedPlaylists] = useState<Set<string>>(new Set());
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [expandedPlaylists, setExpandedPlaylists] = useState<Set<string>>(new Set());
+  const [deleteModalTarget, setDeleteModalTarget] = useState<DeleteModalTarget | null>(null);
+  const expandedHydratedRef = useRef(false);
+
+  useEffect(() => {
+    expandedHydratedRef.current = false;
+    setExpandedPlaylists(new Set());
+  }, [session?.company.id]);
 
   useEffect(() => {
     if (!session?.token) {
@@ -243,6 +266,54 @@ export function AudioAutodjPanel(): JSX.Element {
   }
 
   useEffect(() => {
+    if (expandedHydratedRef.current || !session?.company.id) {
+      return;
+    }
+
+    const playlistIds = state?.playlists.map((playlist) => playlist.id) ?? [];
+
+    if (playlistIds.length === 0) {
+      return;
+    }
+
+    expandedHydratedRef.current = true;
+
+    const storageKey = getExpandedPlaylistsStorageKey(session.company.id);
+    const savedValue = window.localStorage.getItem(storageKey);
+
+    if (!savedValue) {
+      return;
+    }
+
+    try {
+      const parsedValue = JSON.parse(savedValue) as unknown;
+
+      if (!Array.isArray(parsedValue)) {
+        return;
+      }
+
+      const nextExpanded = new Set(
+        parsedValue.filter((v): v is string => typeof v === 'string' && playlistIds.includes(v)),
+      );
+
+      if (nextExpanded.size > 0) {
+        setExpandedPlaylists(nextExpanded);
+      }
+    } catch {
+      // Corrupt storage: keep all collapsed
+    }
+  }, [session?.company.id, state]);
+
+  useEffect(() => {
+    if (!expandedHydratedRef.current || !session?.company.id) {
+      return;
+    }
+
+    const storageKey = getExpandedPlaylistsStorageKey(session.company.id);
+    window.localStorage.setItem(storageKey, JSON.stringify([...expandedPlaylists]));
+  }, [expandedPlaylists, session?.company.id]);
+
+  useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setDebouncedSearchText(searchText);
     }, 1000);
@@ -253,7 +324,7 @@ export function AudioAutodjPanel(): JSX.Element {
   }, [searchText]);
 
   useEffect(() => {
-    if (!scheduleModalPlaylistId) {
+    if (!scheduleModalPlaylistId && !deleteModalTarget) {
       return;
     }
 
@@ -263,16 +334,17 @@ export function AudioAutodjPanel(): JSX.Element {
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [scheduleModalPlaylistId]);
+  }, [deleteModalTarget, scheduleModalPlaylistId]);
 
   useEffect(() => {
-    if (!scheduleModalPlaylistId) {
+    if (!scheduleModalPlaylistId && !deleteModalTarget) {
       return;
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setScheduleModalPlaylistId(null);
+        setDeleteModalTarget(null);
       }
     };
 
@@ -281,23 +353,21 @@ export function AudioAutodjPanel(): JSX.Element {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [scheduleModalPlaylistId]);
+  }, [deleteModalTarget, scheduleModalPlaylistId]);
 
   useEffect(() => {
     if (!scheduleModalPlaylistId) {
       return;
     }
 
-    const playlistExists = state?.playlists.some(
-      (playlist) => playlist.id === scheduleModalPlaylistId && playlist.kind === 'custom'
-    );
+    const playlistExists = state?.playlists.some((playlist) => playlist.id === scheduleModalPlaylistId);
 
     if (!playlistExists) {
       setScheduleModalPlaylistId(null);
     }
   }, [scheduleModalPlaylistId, state]);
 
-  async function runMutation(action: () => Promise<void>, successMessage: string): Promise<void> {
+  async function runMutation(action: () => Promise<void>, successMessage: string): Promise<boolean> {
     setIsBusy(true);
     setErrorMessage(null);
 
@@ -305,8 +375,10 @@ export function AudioAutodjPanel(): JSX.Element {
       await action();
       await loadState();
       setStatusMessage(successMessage);
+      return true;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Request failed.');
+      return false;
     } finally {
       setIsBusy(false);
     }
@@ -400,7 +472,7 @@ export function AudioAutodjPanel(): JSX.Element {
   }
 
   function togglePlaylistCollapsed(id: string): void {
-    setCollapsedPlaylists((prev) => {
+    setExpandedPlaylists((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
@@ -423,6 +495,37 @@ export function AudioAutodjPanel(): JSX.Element {
     }, nextEnabled ? 'AutoDJ turned on.' : 'AutoDJ turned off. The stream will wait only for live source input.');
   }
 
+  async function handleConfirmDelete(): Promise<void> {
+    if (!session?.token || !deleteModalTarget) {
+      return;
+    }
+
+    let success = false;
+
+    if (deleteModalTarget.kind === 'track') {
+      success = await runMutation(() => deleteAudioTrack(session.token, deleteModalTarget.id), 'Track eliminado.');
+    } else {
+      success = await runMutation(() => deleteAudioPlaylist(session.token, deleteModalTarget.id), 'Playlist eliminada.');
+    }
+
+    if (success) {
+      setDeleteModalTarget(null);
+    }
+  }
+
+  async function handleUpdatePlaylistSettings(
+    playlist: AudioPlaylist,
+    patch: { shuffleEnabled?: boolean; isActive?: boolean }
+  ): Promise<void> {
+    if (!session?.token) {
+      return;
+    }
+
+    await runMutation(async () => {
+      await updateAudioPlaylist(session.token, playlist.id, patch);
+    }, 'Playlist actualizada.');
+  }
+
   if (!session) {
     return <div />;
   }
@@ -436,7 +539,7 @@ export function AudioAutodjPanel(): JSX.Element {
   const customPlaylists = playlists.filter((playlist) => playlist.kind === 'custom');
   const autodjIsEnabled = state?.enabled ?? true;
   const scheduleModalPlaylist = scheduleModalPlaylistId
-    ? playlists.find((playlist) => playlist.id === scheduleModalPlaylistId && playlist.kind === 'custom') ?? null
+    ? playlists.find((playlist) => playlist.id === scheduleModalPlaylistId) ?? null
     : null;
   const scheduleModalDraft = scheduleModalPlaylist
     ? getScheduleDraftValue(scheduleDrafts, scheduleModalPlaylist.id)
@@ -505,116 +608,219 @@ export function AudioAutodjPanel(): JSX.Element {
                 </div>
               </div>
 
-              <div className="audio-schedule-modal-body">
-                <div className="audio-schedule-modal-stack">
-                  <section className="audio-schedule-panel">
-                    <div>
-                      <span className="status-eyebrow">Nueva ventana</span>
-                      <h4 className="mt-2 text-lg font-semibold">Agregar horario semanal</h4>
-                    </div>
+              <div className="audio-schedule-color-picker">
+                <span className="status-eyebrow">Configuracion</span>
+                <div className="audio-playlist-setting-grid">
+                  <label className="audio-playlist-setting-switch" htmlFor={`playlist-shuffle-${scheduleModalPlaylist.id}`}>
+                    <span>
+                      <strong>Shuffle</strong>
+                      <small>Reproduce esta playlist en orden aleatorio.</small>
+                    </span>
+                    <input
+                      id={`playlist-shuffle-${scheduleModalPlaylist.id}`}
+                      type="checkbox"
+                      checked={scheduleModalPlaylist.shuffleEnabled}
+                      disabled={isBusy}
+                      onChange={(event) =>
+                        void handleUpdatePlaylistSettings(scheduleModalPlaylist, {
+                          shuffleEnabled: event.target.checked,
+                        })
+                      }
+                    />
+                  </label>
 
-                    <div className="audio-schedule-field-stack">
-                      <ScheduleDayGroup
-                        label="Desde — día"
-                        value={scheduleModalDraft.startDay}
-                        onChange={(nextValue) =>
-                          setScheduleDrafts((currentValue) => ({
-                            ...currentValue,
-                            [scheduleModalPlaylist.id]: { ...scheduleModalDraft, startDay: nextValue },
-                          }))
+                  {scheduleModalPlaylist.kind === 'custom' ? (
+                    <label className="audio-playlist-setting-switch" htmlFor={`playlist-active-${scheduleModalPlaylist.id}`}>
+                      <span>
+                        <strong>Playlist activa</strong>
+                        <small>Si esta apagada, no entra en la seleccion de AutoDJ.</small>
+                      </span>
+                      <input
+                        id={`playlist-active-${scheduleModalPlaylist.id}`}
+                        type="checkbox"
+                        checked={scheduleModalPlaylist.isActive}
+                        disabled={isBusy}
+                        onChange={(event) =>
+                          void handleUpdatePlaylistSettings(scheduleModalPlaylist, {
+                            isActive: event.target.checked,
+                          })
                         }
                       />
-
-                      <ScheduleDayGroup
-                        label="Hasta — día"
-                        value={scheduleModalDraft.endDay}
-                        onChange={(nextValue) =>
-                          setScheduleDrafts((currentValue) => ({
-                            ...currentValue,
-                            [scheduleModalPlaylist.id]: { ...scheduleModalDraft, endDay: nextValue },
-                          }))
-                        }
-                      />
-
-                      <label className="audio-schedule-time-field">
-                        <span className="audio-schedule-group-label">Desde — hora</span>
-                        <input
-                          type="time"
-                          lang="es"
-                          step={60}
-                          value={scheduleModalDraft.startTime}
-                          onChange={(event) =>
-                            setScheduleDrafts((currentValue) => ({
-                              ...currentValue,
-                              [scheduleModalPlaylist.id]: { ...scheduleModalDraft, startTime: event.target.value },
-                            }))
-                          }
-                        />
-                      </label>
-
-                      <label className="audio-schedule-time-field">
-                        <span className="audio-schedule-group-label">Hasta — hora</span>
-                        <input
-                          type="time"
-                          lang="es"
-                          step={60}
-                          value={scheduleModalDraft.endTime}
-                          onChange={(event) =>
-                            setScheduleDrafts((currentValue) => ({
-                              ...currentValue,
-                              [scheduleModalPlaylist.id]: { ...scheduleModalDraft, endTime: event.target.value },
-                            }))
-                          }
-                        />
-                      </label>
-                    </div>
-
-                    <button type="button" disabled={isBusy} onClick={() => void handleCreateSchedule(scheduleModalPlaylist.id)}>
-                      Agregar horario
-                    </button>
-                  </section>
-
-                  <section className="audio-schedule-panel">
-                    <div>
-                      <span className="status-eyebrow">Horarios activos</span>
-                      <h4 className="mt-2 text-lg font-semibold">{scheduleModalPlaylist.schedules.length} ventana(s)</h4>
-                      <p className="text-sm text-slate-300">Elimina cualquier ventana que ya no deba controlar esta playlist.</p>
-                    </div>
-
-                    <div className="audio-schedule-list">
-                      {scheduleModalPlaylist.schedules.length > 0 ? (
-                        scheduleModalPlaylist.schedules.map((schedule) => (
-                          <div key={schedule.id} className="audio-schedule-item">
-                            <div>
-                              <strong>
-                                {formatMinuteOfWeek(schedule.startMinuteOfWeek)} → {formatMinuteOfWeek(schedule.endMinuteOfWeek)}
-                              </strong>
-                            </div>
-                            <button
-                              type="button"
-                              className="ghost-button"
-                              onClick={() =>
-                                void runMutation(
-                                  async () => {
-                                    await deleteAudioPlaylistSchedule(session.token, scheduleModalPlaylist.id, schedule.id);
-                                  },
-                                  'Horario eliminado.'
-                                )
-                              }
-                            >
-                              Eliminar
-                            </button>
-                          </div>
-                        ))
-                      ) : (
-                        <article className="audio-track-empty">
-                          <strong>Sin horarios todavía.</strong>
-                          <p>Agrega la primera ventana semanal con el formulario al lado.</p>
-                        </article>
-                      )}
-                    </div>
-                  </section>
+                    </label>
+                  ) : null}
                 </div>
+              </div>
+
+              {scheduleModalPlaylist.kind === 'custom' ? (
+                <div className="audio-schedule-modal-body">
+                  <div className="audio-schedule-modal-stack">
+                    <section className="audio-schedule-panel">
+                      <div>
+                        <span className="status-eyebrow">Nueva ventana</span>
+                        <h4 className="mt-2 text-lg font-semibold">Agregar horario semanal</h4>
+                      </div>
+
+                      <div className="audio-schedule-field-stack">
+                        <ScheduleDayGroup
+                          label="Desde — día"
+                          value={scheduleModalDraft.startDay}
+                          onChange={(nextValue) =>
+                            setScheduleDrafts((currentValue) => ({
+                              ...currentValue,
+                              [scheduleModalPlaylist.id]: { ...scheduleModalDraft, startDay: nextValue },
+                            }))
+                          }
+                        />
+
+                        <ScheduleDayGroup
+                          label="Hasta — día"
+                          value={scheduleModalDraft.endDay}
+                          onChange={(nextValue) =>
+                            setScheduleDrafts((currentValue) => ({
+                              ...currentValue,
+                              [scheduleModalPlaylist.id]: { ...scheduleModalDraft, endDay: nextValue },
+                            }))
+                          }
+                        />
+
+                        <label className="audio-schedule-time-field">
+                          <span className="audio-schedule-group-label">Desde — hora</span>
+                          <input
+                            type="time"
+                            lang="es"
+                            step={60}
+                            value={scheduleModalDraft.startTime}
+                            onChange={(event) =>
+                              setScheduleDrafts((currentValue) => ({
+                                ...currentValue,
+                                [scheduleModalPlaylist.id]: { ...scheduleModalDraft, startTime: event.target.value },
+                              }))
+                            }
+                          />
+                        </label>
+
+                        <label className="audio-schedule-time-field">
+                          <span className="audio-schedule-group-label">Hasta — hora</span>
+                          <input
+                            type="time"
+                            lang="es"
+                            step={60}
+                            value={scheduleModalDraft.endTime}
+                            onChange={(event) =>
+                              setScheduleDrafts((currentValue) => ({
+                                ...currentValue,
+                                [scheduleModalPlaylist.id]: { ...scheduleModalDraft, endTime: event.target.value },
+                              }))
+                            }
+                          />
+                        </label>
+                      </div>
+
+                      <button type="button" disabled={isBusy} onClick={() => void handleCreateSchedule(scheduleModalPlaylist.id)}>
+                        Agregar horario
+                      </button>
+                    </section>
+
+                    <section className="audio-schedule-panel">
+                      <div>
+                        <span className="status-eyebrow">Horarios activos</span>
+                        <h4 className="mt-2 text-lg font-semibold">{scheduleModalPlaylist.schedules.length} ventana(s)</h4>
+                        <p className="text-sm text-slate-300">Elimina cualquier ventana que ya no deba controlar esta playlist.</p>
+                      </div>
+
+                      <div className="audio-schedule-list">
+                        {scheduleModalPlaylist.schedules.length > 0 ? (
+                          scheduleModalPlaylist.schedules.map((schedule) => (
+                            <div key={schedule.id} className="audio-schedule-item">
+                              <div>
+                                <strong>
+                                  {formatMinuteOfWeek(schedule.startMinuteOfWeek)} → {formatMinuteOfWeek(schedule.endMinuteOfWeek)}
+                                </strong>
+                              </div>
+                              <button
+                                type="button"
+                                className="ghost-button"
+                                onClick={() =>
+                                  void runMutation(
+                                    async () => {
+                                      await deleteAudioPlaylistSchedule(session.token, scheduleModalPlaylist.id, schedule.id);
+                                    },
+                                    'Horario eliminado.'
+                                  )
+                                }
+                              >
+                                Eliminar
+                              </button>
+                            </div>
+                          ))
+                        ) : (
+                          <article className="audio-track-empty">
+                            <strong>Sin horarios todavía.</strong>
+                            <p>Agrega la primera ventana semanal con el formulario al lado.</p>
+                          </article>
+                        )}
+                      </div>
+                    </section>
+                  </div>
+                </div>
+              ) : (
+                <div className="audio-schedule-modal-body">
+                  <article className="audio-track-empty">
+                    <strong>Playlist por defecto.</strong>
+                    <p>Aqui puedes configurar su modo shuffle.</p>
+                  </article>
+                </div>
+              )}
+            </section>
+          </div>,
+          document.body
+        )
+      : null;
+
+  const deleteModal =
+    deleteModalTarget && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            className="audio-schedule-modal-backdrop"
+            role="presentation"
+            onClick={() => setDeleteModalTarget(null)}
+          >
+            <section
+              className="audio-delete-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="audio-delete-modal-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header className="audio-delete-modal-head">
+                <span className="status-eyebrow">Confirmar eliminación</span>
+                <h3 id="audio-delete-modal-title">
+                  {deleteModalTarget.kind === 'track' ? 'Eliminar track' : 'Eliminar playlist'}
+                </h3>
+              </header>
+
+              <p className="audio-delete-modal-text">
+                {deleteModalTarget.kind === 'track'
+                  ? `Vas a eliminar "${deleteModalTarget.label}" de la biblioteca.`
+                  : `Vas a eliminar la playlist "${deleteModalTarget.label}".`}
+              </p>
+
+              <p className="audio-delete-modal-subtext">
+                Esta acción no se puede deshacer.
+              </p>
+
+              <div className="audio-delete-modal-actions">
+                <button type="button" className="audio-delete-modal-cancel" onClick={() => setDeleteModalTarget(null)}>
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="audio-delete-modal-confirm"
+                  disabled={isBusy}
+                  onClick={() => void handleConfirmDelete()}
+                >
+                  Eliminar
+                </button>
               </div>
             </section>
           </div>,
@@ -749,7 +955,11 @@ export function AudioAutodjPanel(): JSX.Element {
                       className="ghost-button audio-track-delete"
                       onClick={(event) => {
                         event.stopPropagation();
-                        void runMutation(() => deleteAudioTrack(session.token, track.id), 'Track eliminado.');
+                        setDeleteModalTarget({
+                          kind: 'track',
+                          id: track.id,
+                          label: track.originalFileName,
+                        });
                       }}
                     >
                       ×
@@ -799,7 +1009,7 @@ export function AudioAutodjPanel(): JSX.Element {
           <div className="audio-playlists-scroll-zone">
             {defaultPlaylist ? (() => {
               const color = defaultPlaylist.color;
-              const isCollapsed = collapsedPlaylists.has(defaultPlaylist.id);
+              const isCollapsed = !expandedPlaylists.has(defaultPlaylist.id);
               return (
                 <div
                   className="audio-playlist-card"
@@ -823,11 +1033,14 @@ export function AudioAutodjPanel(): JSX.Element {
                       {isCollapsed && defaultPlaylist.items.length > 0 && (
                         <span className="audio-playlist-badge">{defaultPlaylist.items.length}</span>
                       )}
-                      {selectedTrackId && !isCollapsed ? (
-                        <button type="button" className="ghost-button text-xs" onClick={() => void appendTrackToPlaylist(selectedTrackId, defaultPlaylist)}>
-                          + Agregar
-                        </button>
-                      ) : null}
+                      <button
+                        type="button"
+                        className="audio-playlist-icon-btn"
+                        title="Gestionar playlist"
+                        onClick={() => setScheduleModalPlaylistId(defaultPlaylist.id)}
+                      >
+                        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5h7M6 8h7M6 12.5h7M2.75 3.5h.5M2.75 8h.5M2.75 12.5h.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
+                      </button>
                       <button
                         type="button"
                         className="audio-playlist-toggle"
@@ -879,7 +1092,7 @@ export function AudioAutodjPanel(): JSX.Element {
             {customPlaylists.length > 0 ? (
               customPlaylists.map((playlist) => {
                 const color = playlist.color;
-                const isCollapsed = collapsedPlaylists.has(playlist.id);
+                const isCollapsed = !expandedPlaylists.has(playlist.id);
                 return (
                   <div
                     key={playlist.id}
@@ -923,39 +1136,25 @@ export function AudioAutodjPanel(): JSX.Element {
                             <button
                               type="button"
                               className="audio-playlist-icon-btn"
-                              title="Gestionar horarios"
+                              title="Gestionar playlist"
                               onClick={() => setScheduleModalPlaylistId(playlist.id)}
                             >
-                              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.4"/><path d="M8 5v3l2 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
+                              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5h7M6 8h7M6 12.5h7M2.75 3.5h.5M2.75 8h.5M2.75 12.5h.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
                             </button>
-                            {deleteConfirmId === playlist.id ? (
-                              <div className="audio-playlist-confirm-delete">
-                                <span>¿Eliminar?</span>
-                                <button
-                                  type="button"
-                                  className="audio-playlist-confirm-yes"
-                                  disabled={isBusy}
-                                  onClick={() => {
-                                    setDeleteConfirmId(null);
-                                    void runMutation(() => deleteAudioPlaylist(session.token, playlist.id), 'Playlist eliminada.');
-                                  }}
-                                >
-                                  Sí
-                                </button>
-                                <button type="button" className="audio-playlist-confirm-no" onClick={() => setDeleteConfirmId(null)}>
-                                  No
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                className="audio-playlist-icon-btn audio-playlist-icon-btn--danger"
-                                title="Eliminar playlist"
-                                onClick={() => setDeleteConfirmId(playlist.id)}
-                              >
-                                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 4h10M6 4V2.5h4V4M6.5 7v5M9.5 7v5M4.5 4l.5 9h6l.5-9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              className="audio-playlist-icon-btn audio-playlist-icon-btn--danger"
+                              title="Eliminar playlist"
+                              onClick={() =>
+                                setDeleteModalTarget({
+                                  kind: 'playlist',
+                                  id: playlist.id,
+                                  label: playlist.name,
+                                })
+                              }
+                            >
+                              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 4h10M6 4V2.5h4V4M6.5 7v5M9.5 7v5M4.5 4l.5 9h6l.5-9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                            </button>
                           </>
                         )}
                         <button
@@ -1092,6 +1291,7 @@ export function AudioAutodjPanel(): JSX.Element {
     </section>
 
       {scheduleModal}
+      {deleteModal}
     </>
   );
 }

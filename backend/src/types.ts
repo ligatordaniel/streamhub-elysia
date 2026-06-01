@@ -74,6 +74,8 @@ export interface AudioPlaylist {
   name: string;
   kind: AudioPlaylistKind;
   color: string;
+  shuffleEnabled: boolean;
+  isActive: boolean;
   priority: number;
   items: AudioPlaylistItem[];
   schedules: AudioPlaylistSchedule[];

@@ -36,6 +36,8 @@ interface PlaylistRow {
   name: string;
   kind: 'default' | 'custom';
   color: string;
+  shuffleEnabled: number;
+  isActive: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -106,6 +108,8 @@ export interface CreateAudioPlaylistInput {
 export interface UpdateAudioPlaylistInput {
   name?: string;
   color?: string;
+  shuffleEnabled?: boolean;
+  isActive?: boolean;
 }
 
 export interface SaveAudioPlaylistScheduleInput {
@@ -183,6 +187,8 @@ const selectPlaylistsByCompanyIdSql = `
     name,
     kind,
     color,
+    shuffle_enabled AS shuffleEnabled,
+    is_active AS isActive,
     created_at AS createdAt,
     updated_at AS updatedAt
   FROM company_audio_playlists
@@ -195,6 +201,8 @@ const selectPlaylistByIdSql = `
     name,
     kind,
     color,
+    shuffle_enabled AS shuffleEnabled,
+    is_active AS isActive,
     created_at AS createdAt,
     updated_at AS updatedAt
   FROM company_audio_playlists
@@ -207,6 +215,8 @@ const selectDefaultPlaylistByCompanyIdSql = `
     name,
     kind,
     color,
+    shuffle_enabled AS shuffleEnabled,
+    is_active AS isActive,
     created_at AS createdAt,
     updated_at AS updatedAt
   FROM company_audio_playlists
@@ -331,13 +341,15 @@ const insertPlaylistSql = `
     name,
     kind,
     color,
+    shuffle_enabled,
+    is_active,
     created_at,
     updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 const updatePlaylistSql = `
   UPDATE company_audio_playlists
-  SET name = ?, color = ?, updated_at = ?
+  SET name = ?, color = ?, shuffle_enabled = ?, is_active = ?, updated_at = ?
   WHERE company_id = ? AND id = ?
 `;
 const deletePlaylistSql = `
@@ -597,6 +609,8 @@ function createPlaylistMap(
     name: playlistRow.name,
     kind: playlistRow.kind,
     color: playlistRow.color,
+    shuffleEnabled: playlistRow.shuffleEnabled === 1,
+    isActive: playlistRow.isActive === 1,
     priority: playlistRow.kind === 'custom' ? 1 : 2,
     items: itemsByPlaylistId.get(playlistRow.id) ?? [],
     schedules: schedulesByPlaylistId.get(playlistRow.id) ?? [],
@@ -655,6 +669,8 @@ export function ensureDefaultAudioPlaylistForCompany(db: Database, companyId: st
       DEFAULT_PLAYLIST_NAME,
       'default',
       '#94a3b8',
+      0,
+      1,
       timestamp,
       timestamp
     );
@@ -690,6 +706,8 @@ export function findCompanyAudioAutodjState(db: Database, companyId: string): Co
       DEFAULT_PLAYLIST_NAME,
       'default',
       '#94a3b8',
+      0,
+      1,
       timestamp,
       timestamp
     );
@@ -839,7 +857,7 @@ export function createAudioPlaylist(
   const id = crypto.randomUUID();
   const timestamp = nowIso();
 
-  db.query(insertPlaylistSql).run(companyId, id, name, 'custom', input.color, timestamp, timestamp);
+  db.query(insertPlaylistSql).run(companyId, id, name, 'custom', input.color, 0, 1, timestamp, timestamp);
 
   const state = findCompanyAudioAutodjState(db, companyId);
   const playlist = state.playlists.find((item) => item.id === id);
@@ -860,6 +878,13 @@ export function updateAudioPlaylist(
   const playlist = ensurePlaylistExists(db, companyId, playlistId);
   const name = input.name !== undefined ? input.name.trim() : playlist.name;
   const color = input.color !== undefined ? input.color.trim() : playlist.color;
+  const shuffleEnabled = input.shuffleEnabled !== undefined ? input.shuffleEnabled : playlist.shuffleEnabled === 1;
+  const isActive =
+    playlist.kind === 'default'
+      ? true
+      : input.isActive !== undefined
+        ? input.isActive
+        : playlist.isActive === 1;
 
   if (!name) {
     throw new AudioAutodjValidationError('Playlist name is required.');
@@ -869,7 +894,7 @@ export function updateAudioPlaylist(
     throw new AudioAutodjValidationError('Default playlist name cannot be changed.');
   }
 
-  db.query(updatePlaylistSql).run(name, color, nowIso(), companyId, playlistId);
+  db.query(updatePlaylistSql).run(name, color, shuffleEnabled ? 1 : 0, isActive ? 1 : 0, nowIso(), companyId, playlistId);
 
   const state = findCompanyAudioAutodjState(db, companyId);
   const updatedPlaylist = state.playlists.find((item) => item.id === playlistId);

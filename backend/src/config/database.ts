@@ -80,6 +80,14 @@ function ensurePlaylistColorColumn(db: Database): void {
   if (!columns.includes('color')) {
     db.exec("ALTER TABLE company_audio_playlists ADD COLUMN color TEXT NOT NULL DEFAULT '#3b82f6'");
   }
+
+  if (!columns.includes('shuffle_enabled')) {
+    db.exec('ALTER TABLE company_audio_playlists ADD COLUMN shuffle_enabled INTEGER NOT NULL DEFAULT 0');
+  }
+
+  if (!columns.includes('is_active')) {
+    db.exec('ALTER TABLE company_audio_playlists ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
+  }
 }
 
 export function createDatabase(env: AppEnv): Database {

@@ -39,6 +39,8 @@ export interface AudioPlaylist {
   name: string;
   kind: AudioPlaylistKind;
   color: string;
+  shuffleEnabled: boolean;
+  isActive: boolean;
   priority: number;
   items: AudioPlaylistItem[];
   schedules: AudioPlaylistSchedule[];
@@ -73,6 +75,8 @@ export interface CreateAudioPlaylistPayload {
 export interface UpdateAudioPlaylistPayload {
   name?: string;
   color?: string;
+  shuffleEnabled?: boolean;
+  isActive?: boolean;
 }
 
 export interface ReplaceAudioPlaylistItemsPayload {

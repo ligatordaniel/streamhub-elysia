@@ -98,6 +98,20 @@ function getMinuteOfWeek(dateValue) {
   return dateValue.getDay() * minutesPerDay + dateValue.getHours() * 60 + dateValue.getMinutes();
 }
 
+function shuffleArray(values) {
+  const nextValues = [...values];
+
+  for (let index = nextValues.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    const currentValue = nextValues[index];
+
+    nextValues[index] = nextValues[randomIndex];
+    nextValues[randomIndex] = currentValue;
+  }
+
+  return nextValues;
+}
+
 function loadAudioStreams() {
   const query = [
     'SELECT id, company_id AS companyId, ingest_key AS ingestKey, name',
@@ -161,7 +175,8 @@ function loadCompanyAutodjState(companyIds) {
     : [];
   const playlistRows = runSqlJson(
     [
-      'SELECT company_id AS companyId, id, name, kind',
+      'SELECT company_id AS companyId, id, name, kind,',
+      'shuffle_enabled AS shuffleEnabled, is_active AS isActive',
       'FROM company_audio_playlists',
       `WHERE company_id IN (${companyIdList})`,
       'ORDER BY kind ASC, name ASC, id ASC',
@@ -232,6 +247,8 @@ function loadCompanyAutodjState(companyIds) {
       id: playlistId,
       name: playlistName,
       kind,
+      shuffleEnabled: row.shuffleEnabled === 1,
+      isActive: kind === 'default' ? true : row.isActive !== 0,
       schedules: [],
       tracks: [],
     });
@@ -289,6 +306,10 @@ function getActivePlaylistForCompany(companyState, minuteOfWeek) {
       continue;
     }
 
+    if (!playlist.isActive) {
+      continue;
+    }
+
     const hasActiveSchedule = playlist.schedules.some(
       (schedule) => schedule.startMinuteOfWeek <= minuteOfWeek && minuteOfWeek < schedule.endMinuteOfWeek
     );
@@ -330,9 +351,12 @@ function writeCompanyAutodjFiles(streams) {
       writeFileSync(playlistFilePath, playlistContents ? `${playlistContents}\n` : '');
     }
 
-    const activePlaylistLines = activePlaylist
-      ? activePlaylist.tracks.map((storagePath) => resolve(audioLibraryRoot, storagePath))
+    const activeTracks = activePlaylist
+      ? activePlaylist.shuffleEnabled
+        ? shuffleArray(activePlaylist.tracks)
+        : activePlaylist.tracks
       : [];
+    const activePlaylistLines = activeTracks.map((storagePath) => resolve(audioLibraryRoot, storagePath));
     const activePlaylistPath = resolve(companyDirectory, 'active.m3u');
     const activePlaylistMetaPath = resolve(companyDirectory, 'active.json');
 
@@ -347,6 +371,8 @@ function writeCompanyAutodjFiles(streams) {
           activePlaylistId: activePlaylist?.id ?? null,
           activePlaylistName: activePlaylist?.name ?? null,
           activePlaylistKind: activePlaylist?.kind ?? null,
+          activePlaylistShuffleEnabled: activePlaylist?.shuffleEnabled ?? null,
+          activePlaylistIsActive: activePlaylist?.isActive ?? null,
           trackCount: activePlaylistLines.length,
         },
         null,
@@ -360,6 +386,8 @@ function writeCompanyAutodjFiles(streams) {
       activePlaylistId: activePlaylist?.id ?? null,
       activePlaylistName: activePlaylist?.name ?? null,
       activePlaylistKind: activePlaylist?.kind ?? null,
+      activePlaylistShuffleEnabled: activePlaylist?.shuffleEnabled ?? null,
+      activePlaylistIsActive: activePlaylist?.isActive ?? null,
       trackCount: activePlaylistLines.length,
       activePlaylistPath,
     });
