@@ -38,10 +38,15 @@ Audio and video live delivery must stay isolated by stack so one media flow does
 - Audio stage 6 listener mounts can return `404` while no valid live source is connected; the AAC and HLS paths become available only after Liquidsoap receives a valid MP3 source stream on the Icecast mount.
 - Audio stage 7 adds a company-scoped AutoDJ layer on top of stage 6 so live audio still keeps per-stream mounts while music playback is shared by company.
 - Audio stage 7 stores uploaded music on disk under `infra/audio/library/companies/<companyId>/` and keeps folder, track, playlist, and schedule metadata in SQLite.
-- Audio stage 7 keeps one default company playlist running as priority 2 and allows custom company playlists as priority 1 when one of their weekly schedules is active.
-- Audio stage 7 rejects overlapping custom weekly schedules inside the same company because two active priority-1 playlists would make source selection ambiguous.
-- Audio stage 7 keeps the live source above AutoDJ priority: if a valid live publisher is connected on a streaming, that live source wins; if not, Liquidsoap falls back to the company AutoDJ source.
-- Audio stage 7 materializes the currently active company playlist into `/srv/audio/playlists/companies/<companyId>/active.m3u` and Liquidsoap watches that file for changes.
+- Audio stage 7 keeps one default company playlist running as priority 3 and allows custom company playlists as priority 2 when one of their weekly schedules is active and the playlist is enabled.
+- Audio stage 7 rejects overlapping custom weekly schedules inside the same company because two active priority-2 playlists would make source selection ambiguous.
+- Audio stage 7 keeps the live source at priority 1: if a valid live publisher is connected on a streaming, that live source wins immediately; Liquidsoap falls back to the company AutoDJ source with `track_sensitive=false` so the switch is mid-frame, not at track boundaries.
+- Audio stage 7 materializes two M3U files per company: `default.m3u` (always populated with the default playlist tracks) and `custom.m3u` (populated with the currently active custom playlist tracks, or empty when no custom playlist is active or the active playlist is disabled).
+- Audio stage 7 generates a Liquidsoap `switch(track_sensitive=false)` that reads `custom.m3u` via `process.test("test -s ...")` at every frame to switch sources immediately when a scheduled window starts or ends, without waiting for the current track to finish.
+- Audio stage 7 shuffle is stable: the same shuffled order is reused until the track list actually changes; M3U files are only rewritten when their content changes to avoid spurious Liquidsoap reloads.
+- Audio stage 7 exposes `GET /audio/autodj/tracks/:trackId/preview` on the backend to stream individual audio files directly for in-browser preview; the endpoint requires a valid bearer token.
+- `render-audio-streams.mjs` is baked into the liquidsoap Docker image at `/usr/local/bin/render-audio-streams.mjs`. After any change to that script, rebuild and recreate the container: `docker compose build liquidsoap && docker compose up -d --force-recreate liquidsoap`.
+- Liquidsoap playlist sources use `mode="loop"` so playback continues indefinitely without operator intervention.
 - Stream paths are short opaque aliases: `live/<streamingAlias>/<publishKey>`.
 - Nginx fronts HLS and the WebRTC HTTP handshake; RTMP ingest stays direct to MediaMTX.
 - The streaming control page renders a real HLS player and falls back to hls.js when the browser lacks native HLS support.
@@ -105,7 +110,7 @@ Audio and video live delivery must stay isolated by stack so one media flow does
 
 ## Local deployment
 - frontend/ and backend/ each own a Dockerfile and a docker-compose.yml file.
-- The root package.json exposes a localdeploy script that starts the backend, frontend, video streaming, and audio compose stacks.
+- The root package.json exposes a `localdeploy` script that starts the backend, frontend, video streaming, and audio compose stacks, and a `stopdeploy` script that stops all stacks in reverse order.
 - The compose files mount the workspace root so both apps can read the shared .env.main and database/ assets.
 - The compose services install workspace dependencies on startup so mounted node_modules volumes stay in sync with package changes.
 

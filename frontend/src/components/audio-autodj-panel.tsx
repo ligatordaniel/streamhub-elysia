@@ -147,7 +147,7 @@ function getScheduleSegments(schedule: AudioPlaylistSchedule): Array<{ dayIndex:
 }
 
 function getScheduleCalendarBlocks(playlists: AudioPlaylist[]): ScheduleCalendarBlock[] {
-  return playlists.flatMap((playlist) =>
+  return playlists.filter((p) => p.isActive).flatMap((playlist) =>
     playlist.schedules.flatMap((schedule) =>
       getScheduleSegments(schedule).map((segment) => ({
         playlistName: playlist.name,

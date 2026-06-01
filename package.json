@@ -12,6 +12,7 @@
     "typecheck:backend": "bun --cwd backend run typecheck",
     "typecheck:frontend": "bun --cwd frontend run typecheck",
     "build:frontend": "bun --cwd frontend run build",
-    "localdeploy": "sh ./localdeploy"
+    "localdeploy": "sh ./localdeploy",
+    "stopdeploy": "sh ./stopdeploy"
   }
 }

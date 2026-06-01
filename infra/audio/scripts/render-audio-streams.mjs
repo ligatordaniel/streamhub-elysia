@@ -296,34 +296,52 @@ function loadCompanyAutodjState(companyIds) {
   return companies;
 }
 
-function getActivePlaylistForCompany(companyState, minuteOfWeek) {
+function getDefaultPlaylist(companyState) {
+  if (!companyState || !companyState.enabled || !companyState.defaultPlaylistId) {
+    return null;
+  }
+  return companyState.playlists.get(companyState.defaultPlaylistId) ?? null;
+}
+
+function getActiveCustomPlaylist(companyState, minuteOfWeek) {
   if (!companyState || !companyState.enabled) {
     return null;
   }
-
   for (const playlist of companyState.playlists.values()) {
-    if (playlist.kind !== 'custom') {
+    if (playlist.kind !== 'custom' || !playlist.isActive) {
       continue;
     }
-
-    if (!playlist.isActive) {
-      continue;
-    }
-
     const hasActiveSchedule = playlist.schedules.some(
       (schedule) => schedule.startMinuteOfWeek <= minuteOfWeek && minuteOfWeek < schedule.endMinuteOfWeek
     );
-
     if (hasActiveSchedule) {
       return playlist;
     }
   }
+  return null;
+}
 
-  if (!companyState.defaultPlaylistId) {
-    return null;
+function writeM3uStable(filePath, fullPaths, shuffleEnabled) {
+  let lines;
+  if (shuffleEnabled && fullPaths.length > 0) {
+    let existingPaths = [];
+    try {
+      const existing = readFileSync(filePath, 'utf-8').trim();
+      existingPaths = existing ? existing.split('\n').map((l) => l.trim()).filter(Boolean) : [];
+    } catch {}
+    const newSorted = [...fullPaths].sort().join('\n');
+    const existingSorted = [...existingPaths].sort().join('\n');
+    lines = newSorted === existingSorted ? existingPaths : shuffleArray(fullPaths);
+  } else {
+    lines = fullPaths;
   }
-
-  return companyState.playlists.get(companyState.defaultPlaylistId) ?? null;
+  const newContent = lines.length > 0 ? `${lines.join('\n')}\n` : '';
+  let currentContent = '';
+  try { currentContent = readFileSync(filePath, 'utf-8'); } catch {}
+  if (newContent !== currentContent) {
+    writeFileSync(filePath, newContent);
+  }
+  return lines;
 }
 
 function writeCompanyAutodjFiles(streams) {
@@ -338,7 +356,8 @@ function writeCompanyAutodjFiles(streams) {
   companyIds.forEach((companyId) => {
     const companyDirectory = resolve(audioPlaylistsRoot, companyId);
     const companyState = companyAutodjState.get(companyId) ?? { defaultPlaylistId: null, playlists: new Map() };
-    const activePlaylist = getActivePlaylistForCompany(companyState, minuteOfWeek);
+    const defaultPlaylist = getDefaultPlaylist(companyState);
+    const customPlaylist = getActiveCustomPlaylist(companyState, minuteOfWeek);
 
     mkdirSync(companyDirectory, { recursive: true });
 
@@ -347,35 +366,22 @@ function writeCompanyAutodjFiles(streams) {
       const playlistContents = playlist.tracks
         .map((storagePath) => resolve(audioLibraryRoot, storagePath))
         .join('\n');
-
       writeFileSync(playlistFilePath, playlistContents ? `${playlistContents}\n` : '');
     }
 
-    const activePlaylistPath = resolve(companyDirectory, 'active.m3u');
+    const defaultM3uPath = resolve(companyDirectory, 'default.m3u');
+    const customM3uPath = resolve(companyDirectory, 'custom.m3u');
     const activePlaylistMetaPath = resolve(companyDirectory, 'active.json');
 
-    const activeFullPaths = (activePlaylist?.tracks ?? []).map((storagePath) => resolve(audioLibraryRoot, storagePath));
+    const defaultFullPaths = (defaultPlaylist?.tracks ?? []).map((p) => resolve(audioLibraryRoot, p));
+    const customFullPaths = (customPlaylist?.tracks ?? []).map((p) => resolve(audioLibraryRoot, p));
 
-    let activePlaylistLines;
-    if (activePlaylist?.shuffleEnabled && activeFullPaths.length > 0) {
-      let existingPaths = [];
-      try {
-        const existing = readFileSync(activePlaylistPath, 'utf-8').trim();
-        existingPaths = existing ? existing.split('\n').map((l) => l.trim()).filter(Boolean) : [];
-      } catch {}
-      const activeSorted = [...activeFullPaths].sort().join('\n');
-      const existingSorted = [...existingPaths].sort().join('\n');
-      activePlaylistLines = activeSorted === existingSorted ? existingPaths : shuffleArray(activeFullPaths);
-    } else {
-      activePlaylistLines = activeFullPaths;
-    }
+    writeM3uStable(defaultM3uPath, defaultFullPaths, defaultPlaylist?.shuffleEnabled ?? false);
+    const customLines = writeM3uStable(customM3uPath, customFullPaths, customPlaylist?.shuffleEnabled ?? false);
 
-    const newM3uContent = activePlaylistLines.length > 0 ? `${activePlaylistLines.join('\n')}\n` : '';
-    let currentM3uContent = '';
-    try { currentM3uContent = readFileSync(activePlaylistPath, 'utf-8'); } catch {}
-    if (newM3uContent !== currentM3uContent) {
-      writeFileSync(activePlaylistPath, newM3uContent);
-    }
+    const activePlaylist = customPlaylist ?? defaultPlaylist;
+    const trackCount = customPlaylist ? customLines.length : defaultFullPaths.length;
+
     writeFileSync(
       activePlaylistMetaPath,
       `${JSON.stringify(
@@ -388,7 +394,7 @@ function writeCompanyAutodjFiles(streams) {
           activePlaylistKind: activePlaylist?.kind ?? null,
           activePlaylistShuffleEnabled: activePlaylist?.shuffleEnabled ?? null,
           activePlaylistIsActive: activePlaylist?.isActive ?? null,
-          trackCount: activePlaylistLines.length,
+          trackCount,
         },
         null,
         2
@@ -403,8 +409,9 @@ function writeCompanyAutodjFiles(streams) {
       activePlaylistKind: activePlaylist?.kind ?? null,
       activePlaylistShuffleEnabled: activePlaylist?.shuffleEnabled ?? null,
       activePlaylistIsActive: activePlaylist?.isActive ?? null,
-      trackCount: activePlaylistLines.length,
-      activePlaylistPath,
+      trackCount,
+      defaultM3uPath,
+      customM3uPath,
     });
   });
 
@@ -429,13 +436,26 @@ function renderLiquidsoap(streams) {
 
   uniqueCompanyIds.forEach((companyId, companyIndex) => {
     const sourceName = `autodj_source_${companyIndex + 1}`;
-    const escapedActivePlaylistPath = escapeLiquidsoap(resolve(audioPlaylistsRoot, companyId, 'active.m3u'));
+    const escapedDefaultPath = escapeLiquidsoap(resolve(audioPlaylistsRoot, companyId, 'default.m3u'));
+    const escapedCustomPath = escapeLiquidsoap(resolve(audioPlaylistsRoot, companyId, 'custom.m3u'));
 
     companySourceNames.set(companyId, sourceName);
-    lines.push(`${sourceName} = playlist(`);
+    lines.push(`default_source_${companyIndex + 1} = playlist(`);
     lines.push('  reload_mode="watch",');
     lines.push('  mode="loop",');
-    lines.push(`  "${escapedActivePlaylistPath}"`);
+    lines.push(`  "${escapedDefaultPath}"`);
+    lines.push(')');
+    lines.push(`custom_source_${companyIndex + 1} = playlist(`);
+    lines.push('  reload_mode="watch",');
+    lines.push('  mode="loop",');
+    lines.push(`  "${escapedCustomPath}"`);
+    lines.push(')');
+    lines.push(`${sourceName} = switch(`);
+    lines.push('  track_sensitive=false,');
+    lines.push('  [');
+    lines.push(`    ({process.test("test -s \\"${escapedCustomPath}\\"")}, custom_source_${companyIndex + 1}),`);
+    lines.push(`    ({true}, default_source_${companyIndex + 1})`);
+    lines.push('  ]');
     lines.push(')');
     lines.push('');
   });
